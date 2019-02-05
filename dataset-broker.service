@@ -1,0 +1,16 @@
+[Unit]
+Description = dataset_broker
+Documentation=https://bitbucket.org/chime/ch_acq/
+After=syslog.target network.target
+
+[Service]
+Type=simple
+Restart=always
+KillSignal=SIGINT
+WorkingDirectory=/home/chime/ch_acq/
+ExecStart=/home/chime/ch_acq/dataset_broker.py
+User=chime
+PIDFile=/var/run/dataset_broker.pid
+
+[Install]
+WantedBy = default.target
