@@ -4,6 +4,7 @@ REST Server and clients for the Dataset Broker.
 
 """
 # Python Standard Library packages
+import logging
 import sys
 import thread
 import datetime
@@ -16,13 +17,14 @@ import toro  # conditional variables for tornado coroutines
 from wtl.rest import AsyncRESTClient, AsyncRESTServer, endpoint
 from wtl.rest import coroutine, coroutine_return
 from wtl.rest import run_client  # generic REST servers and clients
-from wtl import log  # logging helper functions
 
 # Local imports
 
 from version import __version__
 
-
+# This is how a log line will look like:
+LOG_FORMAT = '[%(asctime)s] %(name)s: %(message)s'
+LOG_LEVEL = logging.DEBUG
 WAIT_TIME = 40
 
 
@@ -47,6 +49,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         """
         List of dict with entries 'type', 'name', and 'address'
         """
+        self.log = logging.getLogger("dataset_broker")
         self.states = dict()
 
         # Hashmap of datasets for direct access.
@@ -85,15 +88,15 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         -X GET
         http://localhost:12050/status
         """
-        self.log.debug('%.32r: Received status request' % self)
+        self.log.debug('status: Received status request')
         reply = dict()
         with self.lock_states:
             reply["states"] = self.states.keys()
         with self.lock_datasets:
             reply["datasets"] = self.datasets.keys()
         coroutine_return(reply)
-        self.log.debug('%.32r: states: %r' % (self, self.states.keys()))
-        self.log.debug('%.32r: datasets: %r' % (self, self.datasets.keys()))
+        self.log.debug('status: states: %r' % (self.states.keys()))
+        self.log.debug('status: datasets: %r' % (self.datasets.keys()))
 
     @coroutine
     @endpoint('register-state')
@@ -102,8 +105,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
 
         This should only ever be called by kotekan's datasetManager.
         """
-        self.log.debug('%.32r: Receiving register state request, hash: %r'
-                       % (self, hash))
+        self.log.debug('register-state: Receiving register state request, hash: %r' % (hash))
         reply = dict(result="success")
         with self.lock_states:
             if self.states.get(hash) is None:
@@ -117,10 +119,10 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
                     self.requested_states.add(hash)
                 reply['request'] = "get_state"
                 reply['hash'] = hash
-                self.log.debug('%.32r: Asking for state, hash: %r'
-                               % (self, hash))
-        self.log.debug('%.32r: Received register state request, hash: %r'
-                       % (self, hash))
+                self.log.debug('register-state: Asking for state, hash: %r'
+                               % (hash))
+        self.log.debug('register-state: Received register state request, hash: %r'
+                       % (hash))
         coroutine_return(reply)
 
     @coroutine
@@ -130,7 +132,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
 
         This should only ever be called by kotekan's datasetManager.
         """
-        self.log.debug('%.32r: Received state %r' % (self, hash))
+        self.log.debug('send-state: Received state %r' % (hash))
         reply = dict()
 
         # do we have this state already?
@@ -141,9 +143,9 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
                 if found != state:
                     reply['result'] = "error: a different state is know to " \
                                       "the broker with this hash: %r" % found
-                    self.log.warn('%.32r: Failure receiving state: a '
+                    self.log.warn('send-state: Failure receiving state: a '
                                   'different state with the same hash is: %r'
-                                  % (self, found))
+                                  % (found))
                 else:
                     reply['result'] = "success"
             else:
@@ -153,7 +155,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
 
         with self.lock_requested_states:
             self.requested_states.remove(hash)
-            
+
         coroutine_return(reply)
 
     @coroutine
@@ -163,8 +165,8 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
 
         This should only ever be called by kotekan's datasetManager.
         """
-        self.log.debug('%.32r: Registering new dataset with hash %r : %r' %
-                       (self, hash, ds))
+        self.log.debug('register-dataset: Registering new dataset with hash %r : %r' %
+                       (hash, ds))
         dataset_valid = yield self.checkDataset(ds)
         reply = dict()
         root = yield self.findRoot(hash, ds)
@@ -177,9 +179,9 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
                 if found != ds:
                     reply['result'] = "error: a different dataset is know to" \
                                     " the broker with this hash: %r" % found
-                    self.log.warn('%.32r: Failure receiving dataset: a'
+                    self.log.warn('register-dataset: Failure receiving dataset: a'
                                   ' different dataset with the same hash is: %r'
-                                  % (self, found))
+                                  % (found))
                 else:
                     reply['result'] = "success"
             elif dataset_valid:
@@ -191,10 +193,10 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
             else:
                 reply['result'] = "dataset invalid."
                 self.log.debug(
-                    '%.32r: Received invalid dataset with hash %r : %r' %
-                    (self, hash, ds))
-            self.log.debug('%.32r: Registered new dataset with hash %r : %r' %
-                           (self, hash, ds))
+                    'register-dataset: Received invalid dataset with hash %r : %r' %
+                    (hash, ds))
+            self.log.debug('register-dataset: Registered new dataset with hash %r : %r' %
+                           (hash, ds))
             coroutine_return(reply)
 
     @coroutine
@@ -253,8 +255,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
             root = ds['base_dset']
             found = yield self.wait_for_dset(root)
             if not found:
-                self.log.error('%.32r: findRoot: dataset %r not found.', self,
-                               hash)
+                self.log.error('findRoot: dataset %r not found.', hash)
                 coroutine_return(None)
             with self.lock_datasets:
                 ds = self.datasets[root]
@@ -268,24 +269,24 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         have to exist. If it is a root dataset, the base dataset does not have
         to exist.
         """
-        self.log.debug('%.32r: Checking dataset: %r' %
-                       (self, ds))
+        self.log.debug('checkDataset: Checking dataset: %r' %
+                       (ds))
         found = yield self.wait_for_state(ds['state'])
         if not found:
-            self.log.debug('%.32r: State of dataset unknown: %r' %
-                           (self, ds))
+            self.log.debug('checkDataset: State of dataset unknown: %r' %
+                           (ds))
             coroutine_return(False)
         if ds['is_root']:
-            self.log.debug('%.32r: Checked dataset: %r' %
-                           (self, ds))
+            self.log.debug('checkDataset: Checked dataset: %r' %
+                           (ds))
             coroutine_return(True)
         found = yield self.wait_for_dset(ds['base_dset'])
         if not found:
-            self.log.debug('%.32r: Base dataset of dataset unknown: %r' %
-                           (self, ds))
+            self.log.debug('checkDataset: Base dataset of dataset unknown: %r' %
+                           (ds))
             coroutine_return(False)
-        self.log.debug('%.32r: Checked dataset: %r' %
-                       (self, ds))
+        self.log.debug('checkDataset: Checked dataset: %r' %
+                       (ds))
         coroutine_return(True)
 
     @coroutine
@@ -301,28 +302,28 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         -H "Content-Type: application/json"
         http://localhost:12050/request-state
         """
-        self.log.debug('%.32r: Received request for state with ID %r'
-                       % (self, id))
+        self.log.debug('request-state: Received request for state with ID %r'
+                       % (id))
         reply = dict()
         reply['id'] = id
 
         # Do we know this state ID?
         self.log.debug(
-            '%.32r: waiting for state ID %r' % (self, id))
+            'request-state: waiting for state ID %r' % (id))
         found = yield self.wait_for_state(id)
         if not found:
             reply['result'] = "state ID %r unknown to broker." % id
-            self.log.info('%.32r: State %r unknown to broker' % (self, id))
+            self.log.info('request-state: State %r unknown to broker' % (id))
             coroutine_return(reply)
         self.log.debug(
-            '%.32r: found state ID %r' % (self, id))
+            'request-state: found state ID %r' % (id))
 
         with self.lock_states:
             reply['state'] = self.states[id]
 
         reply['result'] = "success"
         self.log.debug(
-            '%.32r: Replying with state %r' % (self, id))
+            'request-state: Replying with state %r' % (id))
         coroutine_return(reply)
 
     @coroutine
@@ -334,7 +335,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
             # wait for half of kotekans timeout before we admit we don't have it
             self.lock_datasets.release()
             notified = True
-            self.log.debug('%.32r: Waiting for dataset %r' % (self, id))
+            self.log.debug('wait_for_ds: Waiting for dataset %r' % (id))
             try:
                 while True:
                     notified = yield self.signal_datasets_updated.wait(
@@ -343,14 +344,14 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
                     with self.lock_datasets:
                         if self.datasets.get(id) is not None:
                             self.log.debug(
-                                '%.32r: Found dataset %r' % (self, id))
+                                'wait_for_ds: Found dataset %r' % (id))
                             break
             except toro.Timeout as e:
                 pass
             self.lock_datasets.acquire()
             if self.datasets.get(id) is None:
-                self.log.warn('%.32r: Timeout (%rs) when waiting for dataset %r'
-                              % (self, WAIT_TIME, id))
+                self.log.warn('wait_for_ds: Timeout (%rs) when waiting for dataset %r'
+                              % (WAIT_TIME, id))
                 found = False
         self.lock_datasets.release()
 
@@ -364,7 +365,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
             # wait for half of kotekans timeout before we admit we don't have it
             self.lock_states.release()
             notified = True
-            self.log.debug('%.32r: Waiting for state %r' % (self, id))
+            self.log.debug('wait_for_state: Waiting for state %r' % (id))
             try:
                 while True:
                     notified = yield self.signal_states_updated.wait(
@@ -373,14 +374,14 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
                     with self.lock_states:
                         if self.states.get(id) is not None:
                             self.log.debug(
-                                '%.32r: Got state %r' % (self, id))
+                                'wait_for_state: Got state %r' % (id))
                             break
             except toro.Timeout as e:
                 pass
             self.lock_states.acquire()
             if self.states.get(id) is None:
-                self.log.warn('%.32r: Timeout (%rs) when waiting for state %r'
-                              % (self, WAIT_TIME, id))
+                self.log.warn('wait_for_state: Timeout (%rs) when waiting for state %r'
+                              % (WAIT_TIME, id))
                 found = False
         self.lock_states.release()
 
@@ -403,18 +404,18 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         -H "Content-Type: application/json"
         http://localhost:12050/update-datasets
         """
-        self.log.debug('%.32r: Received request for ancestors of dataset %r '
+        self.log.debug('update-datasets: Received request for ancestors of dataset %r '
                        'since timestamp %r, roots %r.'
-                       % (self, ds_id, ts, roots))
+                       % (ds_id, ts, roots))
         reply = dict()
         reply['datasets'] = dict()
 
         # Do we know this ds ID?
         found = yield self.wait_for_dset(ds_id)
         if not found:
-            reply['result'] = "Dataset ID %r unknown to broker." % ds_id
-            self.log.info('%.32r: Dataset ID %r unknown to broker'
-                          % (self, ds_id))
+            reply['result'] = "update-datasets: Dataset ID %r unknown to broker." % ds_id
+            self.log.info('update-datasets: Dataset ID %r unknown to broker'
+                          % (ds_id))
             coroutine_return(reply)
 
         if ts is 0:
@@ -424,7 +425,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         # instance, send them that whole tree.
         root = yield self.findRoot(ds_id, self.datasets[ds_id])
         if root is None:
-            self.log.error('%.32r: Root of dataset %r not found.', ds_id)
+            self.log.error('update-datasets: Root of dataset %r not found.', ds_id)
             reply['result'] = 'Root of dataset %r not found.' % ds_id
         if root not in roots:
             reply['datasets'] = self.tree(root)
@@ -434,7 +435,7 @@ class DSBrokerAsyncRESTServer(AsyncRESTServer):
         reply['datasets'].update(self.gatherUpdate(ts, roots))
 
         reply['result'] = "success"
-        self.log.debug('%.32r: Answering with %r.' % (self, reply))
+        self.log.debug('update-datasets: Answering with %r.' % (reply))
         coroutine_return(reply)
 
     def tree(self, root):
@@ -520,8 +521,6 @@ class DSBrokerAsyncRESTClient(AsyncRESTClient):
 def main():
     """ Command-line interface to launch and operate the dataset broker.
     """
-    # Setup logging
-    log.setup_basic_logging('DEBUG')
     client, server = run_client(sys.argv[1:],
                                 DSBrokerAsyncRESTServer,
                                 DSBrokerAsyncRESTClient,
