@@ -3,18 +3,25 @@
 REST Server and clients for the Dataset Broker.
 
 """
-
+# Python Standard Library packages
 import sys
 import thread
 import datetime
-
 from bisect import bisect_left
-from rest import AsyncRESTClient, AsyncRESTServer, endpoint
-from rest import coroutine, coroutine_return
-from rest import run_client  # generic REST servers and clients
+
+# PyPi packages
 import toro  # conditional variables for tornado coroutines
 
-import log  # logging helper functions
+# External private packages
+from wtl.rest import AsyncRESTClient, AsyncRESTServer, endpoint
+from wtl.rest import coroutine, coroutine_return
+from wtl.rest import run_client  # generic REST servers and clients
+from wtl import log  # logging helper functions
+
+# Local imports
+
+from version import __version__
+
 
 WAIT_TIME = 40
 

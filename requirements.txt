@@ -1,0 +1,9 @@
+# Requirements as per PEP508 standard
+# This file is used by setup.py to create the dependency list 
+# but can be used manually as well with ``pip install -r requirements.txt``
+
+wtl.log @ git+ssh://git@bitbucket.org/winterlandcosmology/wtl.log.git
+wtl.rest @ git+ssh://git@bitbucket.org/winterlandcosmology/wtl.rest.git
+
+# PyPi packages
+toro

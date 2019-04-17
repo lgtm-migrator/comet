@@ -1,0 +1,36 @@
+ch_dataset: Dataset broker/server
+=================================
+
+
+
+Installing ``ch_dataset``
+-------------------------
+
+To get ``ch_dataset``, use git to clone the repository::
+
+	$ git clone git@bitbucket.org:chime/ch_dataset.git  # add the ``-b`` option to specify a branch
+
+Create a clean python environment. You can make a new one with:
+
+	$ virtualenv my_env  # create new virtual environment
+
+or clear an existing one with:
+
+	$ virtualenv --clear my_env  # clean an existing virtual environment
+
+Install the ``ch_dataset`` package, whill will fetch and install all dependencies::  
+
+	$ pip install -e ./ch_dataset  # install all dependencies. -e makes it editable in-place.
+
+
+System requirements
+-------------------
+
+There are no specific system requirements
+
+Development
+-----------
+
+The code that was cloned can be edited directly and pushed back to the git server.
+
+If some dependency needs to be edited, it should be uninstalled (``pip uninstall ...```), cloned locally, and pip install -e shall be run on that clone.
