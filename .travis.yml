@@ -1,0 +1,19 @@
+language: python
+os: linux
+sudo: required
+dist: xenial
+
+python:
+    - 3.5
+notifications:
+    email: false
+
+before_install:
+    - pip install pycodestyle
+
+install:
+    - pip install .
+
+script:
+    # Run pycodestyle on all .py files in all subfolders
+    - pycodestyle --max-line-length=99 .

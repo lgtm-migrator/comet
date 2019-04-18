@@ -457,12 +457,10 @@ class Comet():
         log.setLevel(LOG_LEVEL)
         self.server = ServerThread(app)
 
-
     def run(self):
         self.server.start()
         while True:
             time.sleep(5)
-
 
     def signal_handler(self, sig, frame):
         self.server.shutdown()
