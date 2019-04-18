@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-"""
-REST Server and clients for CoMeT (the Dataset Broker).
-
-"""
+"""REST Server and clients for CoMeT (the Dataset Broker)."""
 import logging
 import time
 import datetime
@@ -27,6 +24,19 @@ app = Flask(__name__)
 
 
 def datetime_to_float(d):
+    """
+    Convert datetime to float (seconds).
+
+    Parameters
+    ----------
+    d : datetime
+        :class:`datetime` object to convert.
+
+    Returns
+    -------
+    float
+        The datetime in seconds.
+    """
     epoch = datetime.datetime.utcfromtimestamp(0)
     total_seconds = (d - epoch).total_seconds()
     # total_seconds will be in decimals (millisecond precision)
@@ -34,6 +44,19 @@ def datetime_to_float(d):
 
 
 def float_to_datetime(fl):
+    """
+    Convert a float (seconds) to datetime.
+
+    Parameters
+    ----------
+    fl : float
+        Seconds to convert.
+
+    Returns
+    -------
+    :class:`datetime`
+        The seconds converted to datetime.
+    """
     return datetime.datetime.utcfromtimestamp(fl)
 
 
@@ -60,7 +83,8 @@ lock_requested_states = Lock()
 
 @app.route('/status', methods=['GET'])
 def status():
-    """ Get status of CoMeT (dataset-broker).
+    """
+    Get status of CoMeT (dataset-broker).
 
     Shows all datasets and states registered by CoMeT (the broker).
 
@@ -85,7 +109,7 @@ def status():
 
 @app.route('/register-state', methods=['POST'])
 def registerState():
-    """ Register a dataset state with CoMeT (the broker).
+    """Register a dataset state with CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
     """
@@ -114,7 +138,7 @@ def registerState():
 
 @app.route('/send-state', methods=['POST'])
 def sendState():
-    """ Send a dataset state to CoMeT (the broker).
+    """Send a dataset state to CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
     """
@@ -152,7 +176,7 @@ def sendState():
 
 @app.route('/register-dataset', methods=['POST'])
 def registerDataset():
-    """ Register a dataset with CoMeT (the broker).
+    """Register a dataset with CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
     """
@@ -192,11 +216,10 @@ def registerDataset():
 
 
 def saveDataset(hash, ds, root):
-    """ Save the given dataset, its hash and a current timestamp.
+    """Save the given dataset, its hash and a current timestamp.
 
-        This should be called while a lock on the datasets is held.
+    This should be called while a lock on the datasets is held.
     """
-
     # add a timestamp to the dataset (ms precision)
     ts = datetime_to_float(datetime.datetime.utcnow())
 
@@ -219,8 +242,10 @@ def saveDataset(hash, ds, root):
 
 
 def gatherUpdate(ts, roots):
-    """ Returns a dict of dataset ID -> dataset with all datasets with the
-        given roots that were registered after the given timestamp.
+    """Gather the update for a given time and roots.
+
+    Returns a dict of dataset ID -> dataset with all datasets with the
+    given roots that were registered after the given timestamp.
     """
     update = dict()
 
@@ -240,7 +265,7 @@ def gatherUpdate(ts, roots):
 
 
 def findRoot(hash, ds):
-    """Returns the dataset Id of the root of this dataset."""
+    """Return the dataset Id of the root of this dataset."""
     root = hash
     while not ds['is_root']:
         root = ds['base_dset']
@@ -278,7 +303,7 @@ def checkDataset(ds):
 
 @app.route('/request-state', methods=['POST'])
 def requestState():
-    """ Request the state with the given ID.
+    """Request the state with the given ID.
 
     This is called by kotekan's datasetManager.
 
@@ -310,6 +335,7 @@ def requestState():
 
 
 def wait_for_dset(id):
+    """Wait until the given dataset is present."""
     global datasets
 
     found = True
@@ -338,6 +364,7 @@ def wait_for_dset(id):
 
 
 def wait_for_state(id):
+    """Wait until the given state is present."""
     global states
 
     found = True
@@ -366,7 +393,8 @@ def wait_for_state(id):
 
 @app.route('/update-datasets', methods=['POST'])
 def updateDatasets():
-    """
+    """Get an update on the datasets.
+
     Request all nodes that where added after the given timestamp.
     If the root of the given dataset is not among the given known roots,
     All datasets with the same root as the given dataset are included in the
@@ -419,7 +447,7 @@ def updateDatasets():
 
 
 def tree(root):
-    """ Returns a list of all nodes in the given tree. """
+    """Return a list of all nodes in the given tree."""
     tree = dict()
     with lock_datasets:
         for n in datasets_of_root[root]:
@@ -428,14 +456,9 @@ def tree(root):
 
 
 class ServerThread(Thread):
-    """
-    REST interface for Dataset Broker.
-    """
+    """REST interface for Dataset Broker."""
 
     def __init__(self, app, address='0.0.0.0', port=DEFAULT_PORT):
-        """
-        List of dict with entries 'type', 'name', and 'address'
-        """
         log.info("Starting CoMeT dataset_broker({}) using port {}.".format(__version__, port))
 
         Thread.__init__(self)
@@ -444,13 +467,17 @@ class ServerThread(Thread):
         self.ctx.push()
 
     def run(self):
+        """Run the server."""
         self.srv.serve_forever()
 
     def shutdown(self):
+        """Shut down the server."""
         self.srv.shutdown()
 
 
 class Comet():
+    """Main class to run the comet dataset broker."""
+
     def __init__(self):
         signal.signal(signal.SIGINT, self.signal_handler)
         logging.basicConfig(format=LOG_FORMAT)
@@ -458,10 +485,12 @@ class Comet():
         self.server = ServerThread(app)
 
     def run(self):
+        """Run comet dataset broker."""
         self.server.start()
         while True:
             time.sleep(5)
 
     def signal_handler(self, sig, frame):
+        """Shut down the server."""
         self.server.shutdown()
         sys.exit(0)

@@ -1,3 +1,9 @@
+"""
+CoMeT, a config and metadata tracker.
+
+``comet`` lives on
+`GitHub <https://github.com/chime-experiment/comet>`_.
+"""
 from os import path
 from setuptools import setup, find_packages
 
