@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+
+import argparse
+
+
+from comet import Comet
+
+
+def start():
+    comet = Comet()
+    comet.run()
+
+
+parser = argparse.ArgumentParser(description="This is comet (a Config and Metadata Tracker).")
+start()
+exit(0)

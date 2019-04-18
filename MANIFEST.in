@@ -1,3 +1,0 @@
-include README.rst
-include docs/*.txt
-include ch_dataset/dataset-broker.service
