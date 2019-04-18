@@ -10,6 +10,7 @@ notifications:
 
 before_install:
     - pip install pycodestyle
+    - pip install pydocstyle
 
 install:
     - pip install .
@@ -17,3 +18,4 @@ install:
 script:
     # Run pycodestyle on all .py files in all subfolders
     - pycodestyle --max-line-length=99 .
+    - pydocstyle --convention=numpy .
