@@ -13,9 +13,16 @@ before_install:
     - pip install pydocstyle
 
 install:
-    - pip install .
+    - python -m pip install .
 
 script:
     # Run pycodestyle on all .py files in all subfolders
     - pycodestyle --max-line-length=99 .
     - pydocstyle --convention=numpy .
+
+    # Run comet
+    - export PYTHONPATH=.:$PYTHONPATH
+    - python ./scripts/comet &
+
+    # Tests
+    - sleep 20s
