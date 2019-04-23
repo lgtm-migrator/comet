@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-"""REST Server and clients for CoMeT (the Dataset Broker)."""
+"""REST Server for CoMeT (the Dataset Broker)."""
 import logging
 import time
 import datetime
@@ -475,7 +474,7 @@ class ServerThread(Thread):
         self.srv.shutdown()
 
 
-class Comet():
+class Broker():
     """Main class to run the comet dataset broker."""
 
     def __init__(self):
