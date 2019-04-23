@@ -347,7 +347,10 @@ def wait_for_dset(id):
         while True:
             # did someone send it to us by now?
             with lock_datasets:
-                signal_datasets_updated.wait(WAIT_TIME)
+                if not signal_datasets_updated.wait(WAIT_TIME):
+                    log.warn('wait_for_ds: Timeout (%rs) when waiting for dataset %r'
+                             % (WAIT_TIME, id))
+                    return False
                 if datasets.get(id) is not None:
                     log.debug(
                         'wait_for_ds: Found dataset %r' % (id))
@@ -375,7 +378,10 @@ def wait_for_state(id):
         while True:
             # did someone send it to us by now?
             with lock_states:
-                signal_states_updated.wait(WAIT_TIME)
+                if not signal_states_updated.wait(WAIT_TIME):
+                    log.warn('wait_for_state: Timeout (%rs) when waiting for state %r'
+                             % (WAIT_TIME, id))
+                    return False
                 if states.get(id) is not None:
                     log.debug(
                         'wait_for_state: Got state %r' % (id))
