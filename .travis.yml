@@ -11,6 +11,7 @@ notifications:
 before_install:
     - pip install pycodestyle
     - pip install pydocstyle
+    - pip install pytest
 
 install:
     - python -m pip install .
@@ -25,4 +26,4 @@ script:
     - python ./scripts/comet &
 
     # Tests
-    - sleep 20s
+    - pytest
