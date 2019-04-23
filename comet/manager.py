@@ -11,15 +11,20 @@ SEND_STATE = '/send-state'
 
 
 class ManagerError(BaseException):
+    """There was an internal error in dataset management."""
+
     pass
 
 
 class BrokerError(BaseException):
+    """There was an error registering states or datasets with the broker."""
+
     pass
 
 
 class Manager:
-    """CoMeT dataset manager.
+    """
+    CoMeT dataset manager.
 
     An interface for the CoMeT dataset broker. State changes are passed to the manager,
     it takes care of registering everything with the broker and keeps local copies to reduce
@@ -27,7 +32,8 @@ class Manager:
 
     Note: Only supports one-dimensional dataset state topologies. That means all states are always
     stacked on top of each other, disregarding the type/name. If you want two separate stacks,
-    create two instances of this class."""
+    create two instances of this class.
+    """
 
     def __init__(self, host, port, noconfig=False):
         """Set up the CoMeT dataset manager.
@@ -82,7 +88,7 @@ class Manager:
         if self.config_registered:
             raise ManagerError('A config was already registered, this can only be done once.')
 
-        state_id = self.make_hash(config)
+        state_id = self._make_hash(config)
         self.logger.info('Registering config with hash {}.'.format(state_id))
         request = {'hash': state_id}
         r = requests.post(self.broker + REGISTER_STATE, data=json.dumps(request))
@@ -102,7 +108,7 @@ class Manager:
 
         # Register a root dataset.
         ds = {'state': state_id, 'is_root': True}
-        ds_id = self.make_hash(ds)
+        ds_id = self._make_hash(ds)
         request = {'hash': ds_id, 'ds': ds}
         r = requests.post(self.broker + REGISTER_DATASET, data=json.dumps(request))
         r.raise_for_status()
@@ -126,7 +132,7 @@ class Manager:
                               .format(result, endpoint))
 
     @staticmethod
-    def make_hash(data):
+    def _make_hash(data):
         return hash(json.dumps(data, sort_keys=True))
 
     def register_state(self, name, state):
@@ -135,13 +141,14 @@ class Manager:
         If the state changes, you should call this function again, passing the same name and the
         new state. For static configs that don't change, use :function:`register_config`.
 
+        TODO: needs to keep track of states internally (use name). Rename to type?
+
         Parameters
         ----------
-        name
-        state
-
-        Returns
-        -------
+        name : str
+            The name of the type of state to register.
+        state : dict
+            The state to register.
 
         Raises
         ------
@@ -150,12 +157,11 @@ class Manager:
             with `noconfig=True`.
 
         """
-
-        if self.config_registered == False and self.noconfig == False:
+        if self.config_registered is False and self.noconfig is False:
             raise ManagerError('Config needs to be registered before any state is added.')
-        state_id = self.make_hash(state)
+        state_id = self._make_hash(state)
         ds = {'state': state_id, 'is_root': False, 'base_dset': False}
-        ds_id = self.make_hash(ds)
+        ds_id = self._make_hash(ds)
         request = {'hash': ds_id, 'ds': ds}
         r = requests.post(self.broker, data=request)
         r.raise_for_status()

@@ -17,11 +17,11 @@ def test_hash(manager):
     data4 = {'a': 1, 'c': 'fubar'}
     data5 = {'a': 2, 'b': 'fubar'}
 
-    assert manager.make_hash(data1) == manager.make_hash(data1)
-    assert manager.make_hash(data1) == manager.make_hash(data2)
-    assert manager.make_hash(data1) != manager.make_hash(data3)
-    assert manager.make_hash(data1) != manager.make_hash(data4)
-    assert manager.make_hash(data1) != manager.make_hash(data5)
+    assert manager._make_hash(data1) == manager._make_hash(data1)
+    assert manager._make_hash(data1) == manager._make_hash(data2)
+    assert manager._make_hash(data1) != manager._make_hash(data3)
+    assert manager._make_hash(data1) != manager._make_hash(data4)
+    assert manager._make_hash(data1) != manager._make_hash(data5)
 
 
 def test_register_config_twice(manager):
@@ -29,4 +29,3 @@ def test_register_config_twice(manager):
     manager.register_config(data1)
     with pytest.raises(ManagerError):
         manager.register_config(data1)
-
