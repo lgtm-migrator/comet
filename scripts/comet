@@ -3,11 +3,11 @@
 import argparse
 
 
-from comet import Comet
+from comet import Broker
 
 
 def start():
-    comet = Comet()
+    comet = Broker()
     comet.run()
 
 
