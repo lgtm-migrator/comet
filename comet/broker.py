@@ -207,7 +207,7 @@ def registerDataset():
             reply['result'] = "success"
             signal_datasets_updated.notify_all()
         else:
-            reply['result'] = "dataset invalid."
+            reply['result'] = 'Dataset {} invalid.'.format(hash)
             log.debug(
                 'register-dataset: Received invalid dataset with hash %r : %r' %
                 (hash, ds))
