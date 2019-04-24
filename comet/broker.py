@@ -157,9 +157,9 @@ def sendState():
             if found != state:
                 reply['result'] = "error: a different state is know to " \
                                   "the broker with this hash: %r" % found
-                log.warning('send-state: Failure receiving state: a '
-                            'different state with the same hash is: %r'
-                            % (found))
+                log.warn('send-state: Failure receiving state: a '
+                         'different state with the same hash is: %r'
+                         % (found))
             else:
                 reply['result'] = "success"
         else:
