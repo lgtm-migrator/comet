@@ -290,8 +290,7 @@ def checkDataset(ds):
         log.debug('checkDataset: State of dataset unknown: %r' % (ds))
         return False
     if ds['is_root']:
-        log.debug('checkDataset: Checked dataset: %r' %
-                  (ds))
+        log.debug('checkDataset: dataset %r OK' % (ds))
         return True
     found = wait_for_dset(ds['base_dset'])
     if not found:
