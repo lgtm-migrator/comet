@@ -157,9 +157,9 @@ def sendState():
             if found != state:
                 reply['result'] = "error: a different state is know to " \
                                   "the broker with this hash: %r" % found
-                log.warn('send-state: Failure receiving state: a '
-                         'different state with the same hash is: %r'
-                         % (found))
+                log.warning('send-state: Failure receiving state: a '
+                            'different state with the same hash is: %r'
+                            % (found))
             else:
                 reply['result'] = "success"
         else:
@@ -196,8 +196,8 @@ def registerDataset():
             if found != ds:
                 reply['result'] = "error: a different dataset is know to" \
                                   " the broker with this hash: %r" % found
-                log.warn('register-dataset: Failure receiving dataset: a'
-                         ' different dataset with the same hash is: %r' % (found))
+                log.warning('register-dataset: Failure receiving dataset: a'
+                            ' different dataset with the same hash is: %r' % (found))
             else:
                 reply['result'] = "success"
         elif dataset_valid:
@@ -348,8 +348,8 @@ def wait_for_dset(id):
             # did someone send it to us by now?
             with lock_datasets:
                 if not signal_datasets_updated.wait(WAIT_TIME):
-                    log.warn('wait_for_ds: Timeout (%rs) when waiting for dataset %r'
-                             % (WAIT_TIME, id))
+                    log.warning('wait_for_ds: Timeout (%rs) when waiting for dataset %r'
+                                % (WAIT_TIME, id))
                     return False
                 if datasets.get(id) is not None:
                     log.debug(
@@ -358,7 +358,7 @@ def wait_for_dset(id):
 
         lock_datasets.acquire()
         if datasets.get(id) is None:
-            log.warn('wait_for_ds: Timeout (%rs) when waiting for dataset %r' % (WAIT_TIME, id))
+            log.warning('wait_for_ds: Timeout (%rs) when waiting for dataset %r' % (WAIT_TIME, id))
             found = False
     lock_datasets.release()
 
@@ -379,8 +379,8 @@ def wait_for_state(id):
             # did someone send it to us by now?
             with lock_states:
                 if not signal_states_updated.wait(WAIT_TIME):
-                    log.warn('wait_for_state: Timeout (%rs) when waiting for state %r'
-                             % (WAIT_TIME, id))
+                    log.warning('wait_for_state: Timeout (%rs) when waiting for state %r'
+                                % (WAIT_TIME, id))
                     return False
                 if states.get(id) is not None:
                     log.debug(
@@ -389,7 +389,8 @@ def wait_for_state(id):
 
         lock_states.acquire()
         if states.get(id) is None:
-            log.warn('wait_for_state: Timeout (%rs) when waiting for state %r' % (WAIT_TIME, id))
+            log.warning('wait_for_state: Timeout (%rs) when waiting for state %r'
+                        % (WAIT_TIME, id))
             found = False
     lock_states.release()
 
