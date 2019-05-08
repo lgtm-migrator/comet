@@ -119,11 +119,10 @@ class Manager:
         r = r.json()
         self._check_result(r.get('result'), SEND_STATE)
 
-    @staticmethod
-    def _check_result(result, endpoint):
+    def _check_result(self, result, endpoint):
         if result != 'success':
-            raise BrokerError('The broker answered with result `{}` to `{}`, expected `success`.'
-                              .format(result, endpoint))
+            raise BrokerError('The {}{} answered with result `{}`, expected `success`.'
+                              .format(self.broker, endpoint, result))
 
     @staticmethod
     def _make_hash(data):
