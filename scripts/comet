@@ -6,11 +6,18 @@ import argparse
 from comet import Broker
 
 
-def start():
-    comet = Broker(True)
+def start(args):
+    comet = Broker(args.dump_file, True)
     comet.run()
 
 
 parser = argparse.ArgumentParser(description="This is comet (a Config and Metadata Tracker).")
-start()
+parser.add_argument(
+        "-d", "--dump-file",
+        help="set dump file (default: 'data.dump')",
+        default='data.dump'
+        )
+parsed_args = parser.parse_args()
+
+start(parsed_args)
 exit(0)
