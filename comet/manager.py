@@ -92,8 +92,8 @@ class Manager:
         # get name of callers module
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         self.logger.info('Registering config for {}.'.format(name))
-        request = {'hash': state_id, 'type': '{}_{}'.format(name, INITIAL_CONFIG_TYPE)}
-        r = requests.post(self.broker + REGISTER_EXTERNAL_STATE, data=json.dumps(request))
+        request = {'hash': state_id}
+        r = requests.post(self.broker + REGISTER_STATE, data=json.dumps(request))
         r.raise_for_status()
         r = r.json()
         self._check_result(r.get('result'), REGISTER_STATE)
@@ -103,6 +103,7 @@ class Manager:
             if r.get('hash') != state_id:
                 raise BrokerError('The broker is asking for state {} when state {} (config) was '
                                   'registered.'.format(r.get('hash'), state_id))
+            config['initial_config'] = name
             self._send_state(state_id, config)
 
         self.states[state_id] = config
