@@ -96,6 +96,8 @@ class Manager:
 
         # get name of callers module
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
+        if name == '__main__':
+            name = inspect.getmodule(inspect.stack()[1][0]).__file__
         self.logger.info('Registering config for {}.'.format(name))
         request = {'hash': state_id}
         r = requests.post(self.broker + REGISTER_STATE, data=json.dumps(request))
