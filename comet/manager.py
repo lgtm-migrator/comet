@@ -19,6 +19,7 @@ class CometError(BaseException):
 
     pass
 
+
 class ManagerError(CometError):
     """There was an internal error in dataset management."""
 
