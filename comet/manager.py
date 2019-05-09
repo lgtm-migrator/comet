@@ -100,16 +100,13 @@ class Manager:
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
         self.logger.info('Registering config for {}.'.format(name))
         request = {'hash': state_id}
-        r = requests.post(self.broker + REGISTER_STATE, data=json.dumps(request))
-        r.raise_for_status()
-        r = r.json()
-        self._check_result(r.get('result'), REGISTER_STATE)
+        reply = self._send(REGISTER_STATE, request)
 
         # Does the broker ask for the state?
-        if r.get('request') == 'get_state':
-            if r.get('hash') != state_id:
+        if reply.get('request') == 'get_state':
+            if reply.get('hash') != state_id:
                 raise BrokerError('The broker is asking for state {} when state {} (config) was '
-                                  'registered.'.format(r.get('hash'), state_id))
+                                  'registered.'.format(reply.get('hash'), state_id))
             config['initial_config'] = name
             self._send_state(state_id, config)
 
@@ -118,13 +115,21 @@ class Manager:
 
         return
 
+    def _send(self, endpoint, data):
+        try:
+            reply = requests.post(self.broker + endpoint, data=json.dumps(data))
+            reply.raise_for_status()
+        except requests.exceptions.ConnectionError:
+            raise BrokerError('Failure connecting to comet.broker at {}{}: make sure it is '
+                              'running.'.format(self.broker, endpoint))
+        reply = reply.json()
+        self._check_result(reply.get('result'), endpoint)
+        return reply
+
     def _send_state(self, state_id, state):
         self.logger.debug('sending state {}'.format(state_id))
         request = {'hash': state_id, 'state': state}
-        r = requests.post(self.broker + SEND_STATE, data=json.dumps(request))
-        r.raise_for_status()
-        r = r.json()
-        self._check_result(r.get('result'), SEND_STATE)
+        self._send(SEND_STATE, request)
 
     def _check_result(self, result, endpoint):
         if result != 'success':
