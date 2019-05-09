@@ -14,13 +14,18 @@ REGISTER_EXTERNAL_STATE = '/register-external-state'
 INITIAL_CONFIG_TYPE = 'initial_config_registered_with_comet'
 
 
-class ManagerError(BaseException):
+class CometError(BaseException):
+    """Base class for all comet exceptions."""
+
+    pass
+
+class ManagerError(CometError):
     """There was an internal error in dataset management."""
 
     pass
 
 
-class BrokerError(BaseException):
+class BrokerError(CometError):
     """There was an error registering states or datasets with the broker."""
 
     pass
