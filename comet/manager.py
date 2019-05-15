@@ -1,5 +1,6 @@
 """CoMeT dataset manager."""
 
+import datetime
 import inspect
 import logging
 import requests
@@ -50,22 +51,83 @@ class Manager:
             Dataset broker host.
         port : int
             Dataset broker port.
-        noconfig : bool
-            If this is `True`, the manager doesn't check if the config was registered already, when
-            a state is registered. Only use this if you know what you are doing. Default: `False`.
         """
         self.broker = 'http://{}:{}'.format(host, port)
-        self.noconfig = noconfig
-        self.config = None
+        self.config_state = None
+        self.start_state = None
         self.states = dict()
+        logging.basicConfig()
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.DEBUG)
+
+    def register_start(self, start_time, version):
+        """Register a startup with the broker.
+
+        This should never be called twice with different parameters. If you want to register a
+        state that may change, use :function:`register_state` instead.
+
+        This does not attach the state to a dataset. If that's what you want to do, use
+        :function:`register_state` instead.
+
+        Parameters
+        ----------
+        start_time : :class:`datetime.datetime`
+            The time in UTC when the program was started.
+        version : str
+            A unique string identifying the version of this software. This should include version
+            tags, and if applicable git commit hashes as well as the "dirty" state of the local
+            working tree.
+
+        Raises
+        ------
+        :class:`ManagerError`
+            If there was an internal error in the dataset management. E.g. if this was called
+            already before. This is to register a startup. Once.
+        :class:`BrokerError`
+            If there was an error in registering stuff with the broker.
+        :class:`ConnectionError`
+            If the broker can't be reached.
+
+        """
+        if not isinstance(start_time, datetime.datetime):
+            raise ManagerError("start_time needs to be of type 'datetime.datetime' (is {})."
+                               .format(type(start_time).__name__))
+        if not isinstance(version, str):
+            raise ManagerError("version needs to be of type 'str' (is {})."
+                               .format(type(start_time).__name__))
+        if self.start_state:
+            raise ManagerError('A startup was already registered, this can only be done once.')
+
+        # get name of callers module
+        name = inspect.getmodule(inspect.stack()[1][0]).__name__
+        if name == '__main__':
+            name = inspect.getmodule(inspect.stack()[1][0]).__file__
+        self.logger.info('Registering startup for {}.'.format(name))
+
+        state = {'type': 'start', 'name': name, 'time': start_time.strftime(TIMESTAMP_FORMAT),
+                 'version': version}
+        state_id = self._make_hash(state)
+
+        request = {'hash': state_id}
+        reply = self._send(REGISTER_STATE, request)
+
+        # Does the broker ask for the state?
+        if reply.get('request') == 'get_state':
+            if reply.get('hash') != state_id:
+                raise BrokerError('The broker is asking for state {} when state {} (start) was '
+                                  'registered.'.format(reply.get('hash'), state_id))
+            self._send_state(state_id, state)
+
+        self.states[state_id] = state
+        self.start_state = state_id
+
+        return
 
     def register_config(self, config):
         """Register a static config with the broker.
 
-        This should only be called once. If you want to register a state that may change, use
-        :function:`register_state` instead.
+        This should just be called once on start. If you want to register a state that may change,
+        use :function:`register_state` instead.
 
         This does not attach the state to a dataset. If that's what you want to do, use
         :function:`register_state` instead.
@@ -78,41 +140,43 @@ class Manager:
         Raises
         ------
         :class:`ManagerError`
-            If there was an internal error in the dataset management. E.g. if this was called
-            already before. This is to register a static config. Once.
+            If there was an internal error in the dataset management.
         :class:`BrokerError`
             If there was an error in registering stuff with the broker.
         :class:`ConnectionError`
             If the broker can't be reached.
 
         """
-        if self.noconfig:
-            raise ManagerError('Option `noconfig` was set but a config registered.')
-        if config is None:
-            raise ManagerError('The config can not be `None`.')
-        if self.config:
-            raise ManagerError('A config was already registered, this can only be done once.')
-
-        state_id = self._make_hash(config)
+        if not isinstance (config, dict):
+            raise ManagerError('config needs to be a dictionary (is `{}`).'
+                               .format(type(config).__name__))
+        if not self.start_state:
+            raise ManagerError("Start has to be registered before config "
+                               "(use 'register_start()').")
 
         # get name of callers module
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         if name == '__main__':
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
         self.logger.info('Registering config for {}.'.format(name))
+
+        config['type'] = 'config'
+        config['name'] = name
+        state_id = self._make_hash(config)
+
         request = {'hash': state_id}
         reply = self._send(REGISTER_STATE, request)
 
         # Does the broker ask for the state?
         if reply.get('request') == 'get_state':
             if reply.get('hash') != state_id:
-                raise BrokerError('The broker is asking for state {} when state {} (config) was '
-                                  'registered.'.format(reply.get('hash'), state_id))
-            config['initial_config'] = name
-            self._send_state(state_id, config)
+                raise BrokerError('The broker is asking for state {} when state {} (config) '
+                                  'was registered.'.format(reply.get('hash'), state_id))
+            request['state'] = config
+            self._send(SEND_STATE, request)
 
         self.states[state_id] = config
-        self.config = state_id
+        self.config_state = state_id
 
         return
 
@@ -171,6 +235,6 @@ class Manager:
             requested state not found.
         """
         if type is None:
-            return self.states[self.config]
+            return self.states[self.config_state]
 
-        raise ManagerError('get_state: Not implemented for anything but initial config.')
+        raise ManagerError('get_state: Not implemented for anything but config.')

@@ -1,6 +1,10 @@
+import json
 import pytest
+
+from datetime import datetime, timedelta
 from comet import Manager, ManagerError
 from comet.broker import DEFAULT_PORT
+from comet.manager import TIMESTAMP_FORMAT
 
 # Some dummy states for testing:
 CONFIG = {'a': 1, 'b': 'fubar'}
@@ -32,8 +36,29 @@ def test_hash(manager):
 
 
 def test_register_config(manager):
-    manager.register_config(CONFIG)
+    now = datetime.now()
+    version = '0.1.1'
+
     with pytest.raises(ManagerError):
         manager.register_config(CONFIG)
+    manager.register_start(now, version)
+    manager.register_config(CONFIG)
+    with pytest.raises(ManagerError):
+        manager.register_start(now, version)
 
     assert CONFIG == manager.get_state()
+
+    with open('data.dump', 'r') as json_file:
+        start_dump = json.loads(json_file.readline())
+        config_dump = json.loads(json_file.readline())
+
+    expected_start_dump = {'time': now.strftime(TIMESTAMP_FORMAT), 'version': version,
+                           'name': __name__, 'type': 'start'}
+    assert start_dump['state'] == expected_start_dump
+    assert start_dump['hash'] == manager._make_hash(expected_start_dump)
+    assert datetime.strptime(start_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+    assert datetime.strptime(start_dump['state']['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+
+    assert config_dump['state'] == CONFIG
+    assert datetime.strptime(config_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+    assert config_dump['hash'] == manager._make_hash(CONFIG)
