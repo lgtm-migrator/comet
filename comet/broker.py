@@ -12,10 +12,10 @@ from sanic import response
 from sanic.log import logger
 
 from . import __version__
+from .manager import TIMESTAMP_FORMAT
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
-TIMESTAMP_FORMAT = '%Y-%m-%d-%H:%M:%S.%f'
 
 app = Sanic(__name__)
 
@@ -218,8 +218,6 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash}
-    if 'time' in request.json:
-        state_dump['time'] = request.json['time']
     asyncio.ensure_future(dump(state_dump))
 
     return response.json(reply)
