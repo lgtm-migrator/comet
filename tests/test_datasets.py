@@ -56,9 +56,12 @@ def test_register_config(manager):
                            'name': __name__, 'type': 'start'}
     assert start_dump['state'] == expected_start_dump
     assert start_dump['hash'] == manager._make_hash(expected_start_dump)
-    assert datetime.strptime(start_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
-    assert datetime.strptime(start_dump['state']['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+    assert datetime.strptime(start_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(
+        minutes=1)
+    assert datetime.strptime(start_dump['state']['time'],
+                             TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
 
     assert config_dump['state'] == CONFIG
-    assert datetime.strptime(config_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+    assert datetime.strptime(config_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(
+        minutes=1)
     assert config_dump['hash'] == manager._make_hash(CONFIG)

@@ -147,7 +147,7 @@ class Manager:
             If the broker can't be reached.
 
         """
-        if not isinstance (config, dict):
+        if not isinstance(config, dict):
             raise ManagerError('config needs to be a dictionary (is `{}`).'
                                .format(type(config).__name__))
         if not self.start_state:
