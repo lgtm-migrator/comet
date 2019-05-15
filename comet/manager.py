@@ -11,7 +11,7 @@ REGISTER_DATASET = '/register-dataset'
 SEND_STATE = '/send-state'
 REGISTER_EXTERNAL_STATE = '/register-external-state'
 
-INITIAL_CONFIG_TYPE = 'initial_config_registered_with_comet'
+TIMESTAMP_FORMAT = '%Y-%m-%d-%H:%M:%S.%f'
 
 
 class CometError(BaseException):
