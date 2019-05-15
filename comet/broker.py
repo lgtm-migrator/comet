@@ -218,8 +218,6 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash}
-    if 'time' in request.json:
-        state_dump['time'] = request.json['time']
     asyncio.ensure_future(dump(state_dump))
 
     return response.json(reply)
