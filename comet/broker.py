@@ -193,7 +193,8 @@ async def sendState(request):
 
     hash = request.json['hash']
     state = request.json['state']
-    logger.debug('send-state: Received state {}'.format(hash))
+    type = request.json['type']
+    logger.debug('send-state: Received {} state {}'.format(type, hash))
     reply = dict()
 
     # do we have this state already?
@@ -217,7 +218,7 @@ async def sendState(request):
         requested_states.remove(hash)
 
     # Dump state to file
-    state_dump = {'state': state, 'hash': hash}
+    state_dump = {'state': state, 'hash': hash, 'type': type}
     asyncio.ensure_future(dump(state_dump))
 
     return response.json(reply)
