@@ -10,6 +10,7 @@ from signal import signal, SIGINT
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
+from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import TIMESTAMP_FORMAT
@@ -405,7 +406,7 @@ async def wait_for_dset(id):
             async with lock_datasets:
                 try:
                     await asyncio.wait_for(signal_datasets_updated.wait(), WAIT_TIME)
-                except TimeoutError:
+                except (TimeoutError, CancelledError):
                     logger.warning('wait_for_ds: Timeout ({}s) when waiting for dataset {}'
                                    .format(WAIT_TIME, id))
                     return False
@@ -442,7 +443,7 @@ async def wait_for_state(id):
             async with lock_states:
                 try:
                     await asyncio.wait_for(signal_states_updated.wait(), WAIT_TIME)
-                except TimeoutError:
+                except (TimeoutError, CancelledError):
                     logger.warning('wait_for_ds: Timeout ({}s) when waiting for state {}'
                                    .format(WAIT_TIME, id))
                     return False
