@@ -1,8 +1,6 @@
 """REST Server for CoMeT (the Dataset Broker)."""
 import asyncio
 import datetime
-import json
-import os
 from bisect import bisect_left
 from copy import copy
 from signal import signal, SIGINT
@@ -13,7 +11,7 @@ from sanic.log import logger
 from concurrent.futures import CancelledError
 
 from . import __version__
-from .manager import TIMESTAMP_FORMAT
+from .dumper import Dumper
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -58,24 +56,8 @@ def float_to_datetime(fl):
     return datetime.datetime.utcfromtimestamp(fl)
 
 
-def dump(data):
-    """
-    Dump json to file.
-
-    Parameters
-    ----------
-    data : json
-        JSON object to dump.
-    """
-    if 'time' not in data.keys():
-        data['time'] = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-    with open(dump_file, 'a') as outfile:
-        json.dump(data, outfile)
-        outfile.write('\n')
-
-
-# File to dump all requests and states to.
-dump_file = None
+# Dumps all requests and states to file.
+dumper = None
 
 # Global state variables
 states = dict()
@@ -147,7 +129,7 @@ async def externalState(request):
 
     if 'time' in request.json:
         ext_state_dump['time'] = request.json['time']
-    dump(ext_state_dump)
+    dumper.dump(ext_state_dump)
 
     # TODO: tell kotekan that this happened
 
@@ -220,7 +202,7 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash, 'type': type}
-    dump(state_dump)
+    dumper.dump(state_dump)
 
     return response.json(reply)
 
@@ -267,7 +249,7 @@ async def registerDataset(request):
     ds_dump = {'ds': ds, 'hash': hash}
     if 'time' in request.json:
         ds_dump['time'] = request.json['time']
-    dump(ds_dump)
+    dumper.dump(ds_dump)
 
     return response.json(reply)
 
@@ -533,15 +515,9 @@ class Broker():
     """Main class to run the comet dataset broker."""
 
     def __init__(self, data_dump_file, debug):
-        global dump_file
+        global dumper
 
-        if not os.path.isfile(data_dump_file):
-            try:
-                open(data_dump_file, 'w').close()
-            except FileNotFoundError:
-                logger.error("Error creating data dump file at '{}':".format(data_dump_file))
-                raise
-        dump_file = data_dump_file
+        dumper = Dumper(data_dump_file)
         self.debug = debug
 
     def run(self):

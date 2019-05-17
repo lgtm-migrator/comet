@@ -1,6 +1,7 @@
 """CoMeT: A Config and Metadata Tracker."""
 from .version import __version__
 from .manager import Manager, ManagerError, BrokerError, CometError
+from .dumper import Dumper
 
 # The broker uses asyncio which doesn't exist in python2. However we want to be able to use the
 # manager in python2, so make the Broker import dependent on the python version.
