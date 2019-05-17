@@ -58,7 +58,7 @@ def float_to_datetime(fl):
     return datetime.datetime.utcfromtimestamp(fl)
 
 
-async def dump(data):
+def dump(data):
     """
     Dump json to file.
 
@@ -147,7 +147,7 @@ async def externalState(request):
 
     if 'time' in request.json:
         ext_state_dump['time'] = request.json['time']
-    asyncio.ensure_future(dump(ext_state_dump))
+    dump(ext_state_dump)
 
     # TODO: tell kotekan that this happened
 
@@ -220,7 +220,7 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash, 'type': type}
-    asyncio.ensure_future(dump(state_dump))
+    dump(state_dump)
 
     return response.json(reply)
 
@@ -267,7 +267,7 @@ async def registerDataset(request):
     ds_dump = {'ds': ds, 'hash': hash}
     if 'time' in request.json:
         ds_dump['time'] = request.json['time']
-    asyncio.ensure_future(dump(ds_dump))
+    dump(ds_dump)
 
     return response.json(reply)
 
