@@ -129,7 +129,7 @@ async def externalState(request):
 
     if 'time' in request.json:
         ext_state_dump['time'] = request.json['time']
-    dumper.dump(ext_state_dump)
+    await dumper.dump(ext_state_dump)
 
     # TODO: tell kotekan that this happened
 
@@ -202,7 +202,7 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash, 'type': type}
-    dumper.dump(state_dump)
+    await dumper.dump(state_dump)
 
     return response.json(reply)
 
@@ -249,7 +249,7 @@ async def registerDataset(request):
     ds_dump = {'ds': ds, 'hash': hash}
     if 'time' in request.json:
         ds_dump['time'] = request.json['time']
-    dumper.dump(ds_dump)
+    await dumper.dump(ds_dump)
 
     return response.json(reply)
 
@@ -514,14 +514,16 @@ async def tree(root):
 class Broker():
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, data_dump_file, debug):
+    def __init__(self, data_dump_path, file_lock_time, debug):
         global dumper
 
-        dumper = Dumper(data_dump_file)
+        dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
 
     def run(self):
         """Run comet dataset broker."""
+        global dumper
+
         print("Starting CoMeT dataset_broker({}) using port {}."
               .format(__version__, DEFAULT_PORT))
         server = app.create_server(host="0.0.0.0", port=12050, return_asyncio_server=True,
@@ -533,4 +535,6 @@ class Broker():
             loop.run_forever()
         except BaseException:
             loop.stop()
+            del dumper
             raise
+        del dumper

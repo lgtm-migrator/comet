@@ -5,17 +5,26 @@ import argparse
 
 from comet import Broker
 
+DEFAULT_DUMP_PATH = "./"
+DEFAULT_FILE_LOCK_TIME = 3600  # seconds
+
 
 def start(args):
-    comet = Broker(args.dump_file, True)
+    comet = Broker(args.dump_path, args.file_lock_time, True)
     comet.run()
 
 
 parser = argparse.ArgumentParser(description="This is comet (a Config and Metadata Tracker).")
 parser.add_argument(
-        "-d", "--dump-file",
-        help="set dump file (default: 'data.dump')",
-        default='data.dump'
+        "-d", "--dump-path",
+        help="set dump path (default: '{}')".format(DEFAULT_DUMP_PATH),
+        default=DEFAULT_DUMP_PATH
+        )
+parser.add_argument(
+        "-t", "--file-lock-time",
+        help="set file lock time in seconds (default: '{}')".format(DEFAULT_FILE_LOCK_TIME),
+        default=DEFAULT_FILE_LOCK_TIME,
+        type=int,
         )
 parsed_args = parser.parse_args()
 

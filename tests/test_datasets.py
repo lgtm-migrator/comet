@@ -1,4 +1,5 @@
 import json
+import os
 import pytest
 
 from datetime import datetime, timedelta
@@ -48,8 +49,19 @@ def test_register_config(manager):
 
     assert CONFIG == manager.get_state()
 
-    with open('data.dump', 'r') as json_file:
-        start_dump = json.loads(json_file.readline())
+    # Find the dump file
+    dump_files = os.listdir("./")
+    print(dump_files)
+    dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
+    dump_times = [f[:-10] for f in dump_files]
+    dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
+    freshest = dump_times.index(max(dump_times))
+    print(freshest)
+
+    with open(dump_files[freshest], 'r') as json_file:
+        line = json.loads(json_file.readline())
+        print(line)
+        start_dump = line
         config_dump = json.loads(json_file.readline())
 
     expected_start_dump = {'time': now.strftime(TIMESTAMP_FORMAT), 'version': version}
