@@ -1,8 +1,6 @@
 """REST Server for CoMeT (the Dataset Broker)."""
 import asyncio
 import datetime
-import json
-import os
 from bisect import bisect_left
 from copy import copy
 from signal import signal, SIGINT
@@ -10,9 +8,10 @@ from signal import signal, SIGINT
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
+from concurrent.futures import CancelledError
 
 from . import __version__
-from .manager import TIMESTAMP_FORMAT
+from .dumper import Dumper
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -57,24 +56,8 @@ def float_to_datetime(fl):
     return datetime.datetime.utcfromtimestamp(fl)
 
 
-async def dump(data):
-    """
-    Dump json to file.
-
-    Parameters
-    ----------
-    data : json
-        JSON object to dump.
-    """
-    if 'time' not in data.keys():
-        data['time'] = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
-    with open(dump_file, 'a') as outfile:
-        json.dump(data, outfile)
-        outfile.write('\n')
-
-
-# File to dump all requests and states to.
-dump_file = None
+# Dumps all requests and states to file.
+dumper = None
 
 # Global state variables
 states = dict()
@@ -146,7 +129,7 @@ async def externalState(request):
 
     if 'time' in request.json:
         ext_state_dump['time'] = request.json['time']
-    asyncio.ensure_future(dump(ext_state_dump))
+    await dumper.dump(ext_state_dump)
 
     # TODO: tell kotekan that this happened
 
@@ -219,7 +202,7 @@ async def sendState(request):
 
     # Dump state to file
     state_dump = {'state': state, 'hash': hash, 'type': type}
-    asyncio.ensure_future(dump(state_dump))
+    await dumper.dump(state_dump)
 
     return response.json(reply)
 
@@ -266,7 +249,7 @@ async def registerDataset(request):
     ds_dump = {'ds': ds, 'hash': hash}
     if 'time' in request.json:
         ds_dump['time'] = request.json['time']
-    asyncio.ensure_future(dump(ds_dump))
+    await dumper.dump(ds_dump)
 
     return response.json(reply)
 
@@ -405,7 +388,7 @@ async def wait_for_dset(id):
             async with lock_datasets:
                 try:
                     await asyncio.wait_for(signal_datasets_updated.wait(), WAIT_TIME)
-                except TimeoutError:
+                except (TimeoutError, CancelledError):
                     logger.warning('wait_for_ds: Timeout ({}s) when waiting for dataset {}'
                                    .format(WAIT_TIME, id))
                     return False
@@ -442,7 +425,7 @@ async def wait_for_state(id):
             async with lock_states:
                 try:
                     await asyncio.wait_for(signal_states_updated.wait(), WAIT_TIME)
-                except TimeoutError:
+                except (TimeoutError, CancelledError):
                     logger.warning('wait_for_ds: Timeout ({}s) when waiting for state {}'
                                    .format(WAIT_TIME, id))
                     return False
@@ -531,20 +514,16 @@ async def tree(root):
 class Broker():
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, data_dump_file, debug):
-        global dump_file
+    def __init__(self, data_dump_path, file_lock_time, debug):
+        global dumper
 
-        if not os.path.isfile(data_dump_file):
-            try:
-                open(data_dump_file, 'w').close()
-            except FileNotFoundError:
-                logger.error("Error creating data dump file at '{}':".format(data_dump_file))
-                raise
-        dump_file = data_dump_file
+        dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
 
     def run(self):
         """Run comet dataset broker."""
+        global dumper
+
         print("Starting CoMeT dataset_broker({}) using port {}."
               .format(__version__, DEFAULT_PORT))
         server = app.create_server(host="0.0.0.0", port=12050, return_asyncio_server=True,
@@ -556,4 +535,6 @@ class Broker():
             loop.run_forever()
         except BaseException:
             loop.stop()
+            del dumper
             raise
+        del dumper
