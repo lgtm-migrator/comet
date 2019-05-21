@@ -222,6 +222,9 @@ async def registerDataset(request):
     reply = dict()
     root = await findRoot(hash, ds)
 
+    # Only dump new datasets.
+    dump = False
+
     # dataset already known?
     async with lock_datasets:
         found = datasets.get(hash)
@@ -237,6 +240,7 @@ async def registerDataset(request):
         elif dataset_valid:
             # save the dataset
             saveDataset(hash, ds, root)
+            dump = True
 
             reply['result'] = "success"
             signal_datasets_updated.notify_all()
@@ -246,10 +250,11 @@ async def registerDataset(request):
                          .format(hash, ds))
 
     # Dump dataset to file
-    ds_dump = {'ds': ds, 'hash': hash}
-    if 'time' in request.json:
-        ds_dump['time'] = request.json['time']
-    await dumper.dump(ds_dump)
+    if dump:
+        ds_dump = {'ds': ds, 'hash': hash}
+        if 'time' in request.json:
+            ds_dump['time'] = request.json['time']
+        await dumper.dump(ds_dump)
 
     return response.json(reply)
 
