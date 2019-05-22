@@ -23,7 +23,8 @@ script:
 
     # Run comet
     - export PYTHONPATH=.:$PYTHONPATH
-    - ./scripts/comet
+    - ./scripts/comet &
+    - sleep 2
 
     # Tests
     - pytest
