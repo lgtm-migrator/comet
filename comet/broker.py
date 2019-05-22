@@ -551,7 +551,7 @@ class Broker():
 
         print("Starting CoMeT dataset_broker({}) using port {}."
               .format(__version__, DEFAULT_PORT))
-        server = app.create_server(host="0.0.0.0", port=12050, return_asyncio_server=True,
+        server = app.create_server(host="0.0.0.0", port=DEFAULT_PORT, return_asyncio_server=True,
                                    access_log=True, debug=self.debug)
         loop = asyncio.get_event_loop()
         task = asyncio.ensure_future(server)
