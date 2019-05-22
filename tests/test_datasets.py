@@ -37,7 +37,7 @@ def test_hash(manager):
 
 
 def test_register_config(manager):
-    now = datetime.now()
+    now = datetime.utcnow()
     version = '0.1.1'
 
     with pytest.raises(ManagerError):
@@ -51,30 +51,33 @@ def test_register_config(manager):
 
     # Find the dump file
     dump_files = os.listdir("./")
-    print(dump_files)
     dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
     dump_times = [f[:-10] for f in dump_files]
     dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
     freshest = dump_times.index(max(dump_times))
-    print(freshest)
 
     with open(dump_files[freshest], 'r') as json_file:
-        line = json.loads(json_file.readline())
-        print(line)
-        start_dump = line
+        comet_start_dump = json.loads(json_file.readline())
+        comet_config_dump = json.loads(json_file.readline())
+
+        start_dump = json.loads(json_file.readline())
         config_dump = json.loads(json_file.readline())
+
+    assert comet_start_dump['type'] == 'start_comet.broker'
+    assert comet_config_dump['type'] == 'config_comet.broker'
 
     expected_start_dump = {'time': now.strftime(TIMESTAMP_FORMAT), 'version': version}
     assert start_dump['type'] == 'start_{}'.format(__name__)
     assert start_dump['state'] == expected_start_dump
     assert start_dump['hash'] == manager._make_hash(expected_start_dump)
-    assert datetime.strptime(start_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(
+    assert datetime.strptime(start_dump['time'], TIMESTAMP_FORMAT) - datetime.utcnow() < timedelta(
         minutes=1)
     assert datetime.strptime(start_dump['state']['time'],
-                             TIMESTAMP_FORMAT) - datetime.now() < timedelta(minutes=1)
+                             TIMESTAMP_FORMAT) - datetime.utcnow() < timedelta(minutes=1)
 
     assert config_dump['type'] == 'config_{}'.format(__name__)
     assert config_dump['state'] == CONFIG
-    assert datetime.strptime(config_dump['time'], TIMESTAMP_FORMAT) - datetime.now() < timedelta(
-        minutes=1)
+    assert datetime.strptime(
+        config_dump['time'], TIMESTAMP_FORMAT
+    ) - datetime.utcnow() < timedelta(minutes=1)
     assert config_dump['hash'] == manager._make_hash(CONFIG)

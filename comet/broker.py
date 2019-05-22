@@ -4,6 +4,8 @@ import datetime
 from bisect import bisect_left
 from copy import copy
 from signal import signal, SIGINT
+from threading import Thread
+from time import sleep
 
 from sanic import Sanic
 from sanic import response
@@ -12,6 +14,7 @@ from concurrent.futures import CancelledError
 
 from . import __version__
 from .dumper import Dumper
+from .manager import Manager, CometError
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -522,8 +525,25 @@ class Broker():
     def __init__(self, data_dump_path, file_lock_time, debug):
         global dumper
 
+        self.config = {"data_dump_path": data_dump_path, "file_lock_time": file_lock_time,
+                       "debug": debug}
+
         dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
+        self.startup_time = datetime.datetime.utcnow()
+
+    @staticmethod
+    def _wait_and_register(startup_time, config):
+        sleep(1)
+        manager = Manager("localhost", DEFAULT_PORT)
+        try:
+            manager.register_start(startup_time, __version__)
+            manager.register_config(config)
+        except CometError as exc:
+            logger.error('Comet failed registering its own startup and initial config: {}'
+                         .format(exc))
+            del dumper
+            exit(1)
 
     def run(self):
         """Run comet dataset broker."""
@@ -531,11 +551,16 @@ class Broker():
 
         print("Starting CoMeT dataset_broker({}) using port {}."
               .format(__version__, DEFAULT_PORT))
-        server = app.create_server(host="0.0.0.0", port=12050, return_asyncio_server=True,
+        server = app.create_server(host="0.0.0.0", port=DEFAULT_PORT, return_asyncio_server=True,
                                    access_log=True, debug=self.debug)
         loop = asyncio.get_event_loop()
         task = asyncio.ensure_future(server)
         signal(SIGINT, lambda s, f: loop.stop())
+
+        # Register config with broker
+        t = Thread(target=self._wait_and_register, args=(self.startup_time, self.config,))
+        t.start()
+
         try:
             loop.run_forever()
         except BaseException:

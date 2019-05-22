@@ -14,6 +14,8 @@ REGISTER_EXTERNAL_STATE = '/register-external-state'
 
 TIMESTAMP_FORMAT = '%Y-%m-%d-%H:%M:%S.%f'
 
+TIMEOUT = 60
+
 
 class CometError(BaseException):
     """Base class for all comet exceptions."""
@@ -178,10 +180,13 @@ class Manager:
 
     def _send(self, endpoint, data):
         try:
-            reply = requests.post(self.broker + endpoint, data=json.dumps(data))
+            reply = requests.post(self.broker + endpoint, data=json.dumps(data), timeout=TIMEOUT)
             reply.raise_for_status()
         except requests.exceptions.ConnectionError:
             raise BrokerError('Failure connecting to comet.broker at {}{}: make sure it is '
+                              'running.'.format(self.broker, endpoint))
+        except requests.exceptions.ReadTimeout:
+            raise BrokerError('Timeout when connecting to comet.broker at {}{}: make sure it is '
                               'running.'.format(self.broker, endpoint))
         reply = reply.json()
         self._check_result(reply.get('result'), endpoint)

@@ -41,7 +41,7 @@ class Dumper:
             os.remove(self.lock_file)
 
         # Create new file
-        now = datetime.datetime.now()
+        now = datetime.datetime.utcnow()
         self.open_time = now
         self.open_file = os.path.join(self.path, FILENAME.format(now.strftime(TIMESTAMP_FORMAT)))
         self.lock_file = "{}.lock".format(self.open_file)
@@ -61,13 +61,12 @@ class Dumper:
         """
         # Make sure the dump has a timestamp
         if 'time' not in data.keys():
-            data['time'] = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
+            data['time'] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
 
         async with self.lock:
             if self.open_time is None:
                 await self._new_file()
-            elif datetime.datetime.now() - self.open_time \
-                    > self.lock_time:
+            elif datetime.datetime.utcnow() - self.open_time > self.lock_time:
                 await self._new_file()
 
             # Dump to file
