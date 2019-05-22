@@ -4,7 +4,7 @@ sudo: required
 dist: xenial
 
 python:
-    - 3.5
+    - 3.7
 notifications:
     email: false
 
@@ -23,7 +23,7 @@ script:
 
     # Run comet
     - export PYTHONPATH=.:$PYTHONPATH
-    - python ./scripts/comet &
+    - ./scripts/comet &
 
     # Tests
     - pytest
