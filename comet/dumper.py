@@ -63,8 +63,6 @@ class Dumper:
         if 'time' not in data.keys():
             data['time'] = datetime.datetime.now().strftime(TIMESTAMP_FORMAT)
 
-        print('dumping {}'.format(data))
-
         async with self.lock:
             if self.open_time is None:
                 await self._new_file()
