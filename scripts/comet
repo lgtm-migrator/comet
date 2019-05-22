@@ -9,8 +9,16 @@ DEFAULT_DUMP_PATH = "./"
 DEFAULT_FILE_LOCK_TIME = 3600  # seconds
 
 
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def start(args):
-    comet = Broker(args.dump_path, args.file_lock_time, True)
+    comet = Broker(args.dump_path, args.file_lock_time, args.debug)
     comet.run()
 
 
@@ -26,6 +34,15 @@ parser.add_argument(
         default=DEFAULT_FILE_LOCK_TIME,
         type=int,
         )
+parser.add_argument(
+        "--debug",
+        help="set debug mode (default: False)",
+        default=False,
+        type=str2bool,
+        nargs='?',
+        const=True,
+        )
+
 parsed_args = parser.parse_args()
 
 start(parsed_args)
