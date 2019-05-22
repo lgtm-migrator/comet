@@ -51,18 +51,20 @@ def test_register_config(manager):
 
     # Find the dump file
     dump_files = os.listdir("./")
-    print(dump_files)
     dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
     dump_times = [f[:-10] for f in dump_files]
     dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
     freshest = dump_times.index(max(dump_times))
-    print(freshest)
 
     with open(dump_files[freshest], 'r') as json_file:
-        line = json.loads(json_file.readline())
-        print(line)
-        start_dump = line
+        comet_start_dump = json.loads(json_file.readline())
+        comet_config_dump = json.loads(json_file.readline())
+
+        start_dump = json.loads(json_file.readline())
         config_dump = json.loads(json_file.readline())
+
+    assert comet_start_dump['type'] == 'start_comet.broker'
+    assert comet_config_dump['type'] == 'config_comet.broker'
 
     expected_start_dump = {'time': now.strftime(TIMESTAMP_FORMAT), 'version': version}
     assert start_dump['type'] == 'start_{}'.format(__name__)
