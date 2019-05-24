@@ -569,6 +569,7 @@ class Broker():
 
             threads = list()
             for file in dump_files:
+                logger.info("Reading dump file: {}".format(file))
                 with open(os.path.join(config["data_dump_path"], file), 'r') as json_file:
                     for line in json_file:
                         entry = json.loads(line)
