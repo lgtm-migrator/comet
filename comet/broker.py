@@ -6,6 +6,7 @@ import os
 
 from bisect import bisect_left
 from copy import copy
+from signal import signal, SIGINT
 from threading import Thread
 from time import sleep
 
@@ -190,7 +191,10 @@ async def sendState(request):
     global requested_states
     hash = request.json['hash']
     state = request.json['state']
-    type = state['type']
+    if state:
+        type = state['type']
+    else:
+        type = None
     logger.debug('send-state: Received {} state {}'.format(type, hash))
     reply = dict()
 
@@ -564,20 +568,27 @@ class Broker():
             dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
             dump_times = [f[:-10] for f in dump_files]
             dump_times = [datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-            dump_times.sort()
+            dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
 
             threads = list()
-            for file in dump_files:
-                logger.info("Reading dump file: {}".format(file))
-                with open(os.path.join(config["data_dump_path"], file), 'r') as json_file:
+            for dfile in dump_files:
+                logger.info("Reading dump file: {}".format(dfile))
+                with open(os.path.join(config["data_dump_path"], dfile), 'r') as json_file:
+                    line_num = 0
                     for line in json_file:
+                        line_num += 1
                         entry = json.loads(line)
                         if "state" in entry.keys():
                             # Don't register the start state we just sent.
-                            if not entry["state"] == manager.states[manager.start_state]:
-                                manager.register_state(entry["state"], entry["state"]["type"],
-                                                       False, entry["time"], entry['hash'])
-                        if "ds" in entry.keys():
+                            state = entry["state"]
+                            if not state == manager.states[manager.start_state]:
+                                if state:
+                                    state_type = state["type"]
+                                else:
+                                    state_type = None
+                                manager.register_state(entry["state"], state_type, False,
+                                                       entry["time"], entry['hash'])
+                        elif "ds" in entry.keys():
                             # States need to be registered parallelly, because some registrations
                             # make the broker wait for another state.
                             threads.append(Thread(target=manager.register_dataset,
@@ -587,13 +598,17 @@ class Broker():
                                                         entry["ds"]["is_root"], False,
                                                         entry["time"], entry["hash"])))
                             threads[-1].start()
+                        else:
+                            logger.warn("Dump file entry {}:{} has neither state nor dataset. "
+                                        "Skipping...\nThis is the entry: {}"
+                                        .format(dfile, line_num, entry))
 
             for t in threads:
                 t.join()
 
         manager.register_config(config)
 
-    def run(self):
+    def run_comet(self):
         """Run comet dataset broker."""
         global dumper
 
@@ -604,7 +619,19 @@ class Broker():
         t = Thread(target=self._wait_and_register, args=(self.startup_time, self.config,))
         t.start()
 
-        app.run(host="0.0.0.0", port=DEFAULT_PORT, return_asyncio_server=True, workers=1,
-                access_log=True, debug=self.debug)
+        server = app.create_server(host="0.0.0.0", port=DEFAULT_PORT, return_asyncio_server=True,
+                                   access_log=True, debug=self.debug)
+        loop = asyncio.get_event_loop()
+        loop.slow_callback_duration = 10000
+        task = asyncio.ensure_future(server)
+        signal(SIGINT, lambda s, f: loop.stop())
 
+        try:
+            loop.run_forever()
+        except BaseException:
+
+            loop.stop()
+            del dumper
+            raise
+        del dumper
         t.join()
