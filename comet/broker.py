@@ -172,11 +172,10 @@ async def registerState(request):
             reply['hash'] = hash
             logger.debug('register-state: Asking for state, hash: {}'.format(hash))
 
-    if request.json.get("dump", True):
-        if state is not None:
-            # Dump state to file
-            state_dump = {'state': state, 'hash': hash}
-            await dumper.dump(state_dump)
+    if request.json.get("dump", False):
+        # Dump state to file
+        state_dump = {'state': state, 'hash': hash}
+        await dumper.dump(state_dump)
 
     return response.json(reply)
 

@@ -112,7 +112,7 @@ class Manager:
                  "type": 'start_{}'.format(name)}
         state_id = self._make_hash(state)
 
-        request = {'hash': state_id}
+        request = {'hash': state_id, 'dump': True}
         reply = self._send(REGISTER_STATE, request)
 
         # Does the broker ask for the state?
@@ -168,7 +168,7 @@ class Manager:
         config['type'] = 'config_{}'.format(name)
         state_id = self._make_hash(config)
 
-        request = {'hash': state_id}
+        request = {'hash': state_id, 'dump': True}
         reply = self._send(REGISTER_STATE, request)
 
         # Does the broker ask for the state?
