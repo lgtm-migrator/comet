@@ -29,7 +29,11 @@ logger.setLevel('INFO')
 
 
 class DatasetState(peewee.Model):
+    """Model for datasetstate table."""
+
     class LongTextField(peewee.TextField):
+        """Peewee field supporting MySQL longtext."""
+
         field_type = 'LONGTEXT'
 
     hash = peewee.DecimalField(21, 0, primary_key=True)
@@ -37,26 +41,39 @@ class DatasetState(peewee.Model):
     data = LongTextField()
 
     class Meta:
+        """Connect model to database."""
+
         database = mysql_db
 
 
 class DatasetCurrentState(peewee.Model):
+    """Model for datasetcurrentstate table."""
+
     id = peewee.AutoField()
     hash = peewee.DecimalField(21, 0)
     time = peewee.DateTimeField()
 
     class Meta:
+        """Connect model to database."""
+
         database = mysql_db
 
+
 class DatasetStateType(peewee.Model):
+    """Model for datasetstatetype table."""
+
     id = peewee.AutoField()
     name = peewee.CharField()
 
     class Meta:
+        """Connect model to database."""
+
         database = mysql_db
 
 
 class Dataset(peewee.Model):
+    """Model for dataset table."""
+
     hash = peewee.DecimalField(21, 0, primary_key=True)
     root = peewee.BooleanField()
     state = peewee.BigIntegerField()
@@ -64,10 +81,12 @@ class Dataset(peewee.Model):
     types = peewee.CharField()
 
     class Meta:
+        """Connect model to database."""
+
         database = mysql_db
 
 
-def insert_state(entry):
+def _insert_state(entry):
     if entry["state"] is None:
         # Add a row to dataset_state_current
         DatasetCurrentState.insert(
@@ -92,7 +111,7 @@ def insert_state(entry):
             ).on_conflict_ignore().execute()
 
 
-def insert_dataset(entry):
+def _insert_dataset(entry):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         Dataset.insert(
@@ -128,7 +147,7 @@ class Archiver():
             exit(1)
 
         self.loop = asyncio.get_event_loop()
-        self.task = self.loop.create_task(self.scrape())
+        self.task = self.loop.create_task(self._scrape())
 
         # Open database connection
         mysql_db.init(db_name, user=db_user, password=db_passwd, host=db_host, port=db_port)
@@ -139,7 +158,6 @@ class Archiver():
 
     def run(self):
         """Run comet archiver."""
-
         logger.info("Started CoMeT Archiver ({}), scraping path '{}' every {}."
                     .format(__version__, self.dir,
                             datetime.timedelta(seconds=self.interval)))
@@ -151,7 +169,7 @@ class Archiver():
         except asyncio.CancelledError:
             pass
 
-    async def scrape(self):
+    async def _scrape(self):
         try:
             time_last_scraped = datetime.datetime.min
             while True:
@@ -180,7 +198,7 @@ class Archiver():
                                 logger.debug("Archiving {}".format(entry))
                                 if "state" in entry.keys():
                                     try:
-                                        insert_state(entry)
+                                        _insert_state(entry)
                                     except KeyError as key:
                                         logger.error("Entry in dump file {}:{} is missing key {}. "
                                                      "Skipping! This is the entry:\n{}"
@@ -188,7 +206,7 @@ class Archiver():
                                                              line_num, key, entry))
                                 elif "ds" in entry.keys():
                                     try:
-                                        insert_dataset(entry)
+                                        _insert_dataset(entry)
                                     except KeyError as key:
                                         logger.error("Entry in dump file {}:{} is missing key {}. "
                                                      "Skipping! This is the entry:\n{}"
@@ -209,4 +227,5 @@ class Archiver():
             raise
 
     def stop(self):
+        """Stop the archiver."""
         self.task.cancel()
