@@ -1,5 +1,6 @@
 """CoMeT dataset manager."""
 
+import copy
 import datetime
 import inspect
 import logging
@@ -165,8 +166,10 @@ class Manager:
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
         self.logger.info('Registering config for {}.'.format(name))
 
-        config['type'] = 'config_{}'.format(name)
-        state_id = self._make_hash(config)
+        state = copy.deepcopy(config)
+
+        state['type'] = 'config_{}'.format(name)
+        state_id = self._make_hash(state)
 
         request = {'hash': state_id, 'dump': True}
         reply = self._send(REGISTER_STATE, request)
@@ -176,9 +179,9 @@ class Manager:
             if reply.get('hash') != state_id:
                 raise BrokerError('The broker is asking for state {} when state {} (config) '
                                   'was registered.'.format(reply.get('hash'), state_id))
-            self._send_state(state_id, config)
+            self._send_state(state_id, state)
 
-        self.states[state_id] = config
+        self.states[state_id] = state
         self.config_state = state_id
         self.state_reg_time[state_id] = datetime.datetime.utcnow()
 
@@ -218,16 +221,21 @@ class Manager:
             If the broker can't be reached.
 
         """
-        if not isinstance(state, dict):
+        if not (isinstance(state, dict) or state is None):
             raise ManagerError('state needs to be a dictionary (is `{}`).'
                                .format(type(state).__name__))
         if not self.start_state:
             raise ManagerError("Start has to be registered before anything else "
                                "(use 'register_start()').")
 
+        state = copy.deepcopy(state)
+
+        if state_type:
+            state["type"] = state_type
+        elif state:
+            state_type = state["type"]
         if state_id is None:
             state_id = self._make_hash(state)
-        state["type"] = state_type
 
         request = {'hash': state_id, "dump": dump}
         if timestamp:

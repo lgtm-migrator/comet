@@ -37,11 +37,14 @@ def broker():
     dir = tempfile.mkdtemp()
 
     broker = Popen(['comet', '--debug', '1', '-d', dir])
-    time.sleep(2)
+    time.sleep(3)
     yield dir
     pid = broker.pid
     os.kill(pid, signal.SIGINT)
     broker.terminate()
+
+    # Give the broker a moment to delete the .lock file
+    time.sleep(.1)
     shutil.rmtree(dir)
 
 
@@ -66,7 +69,10 @@ def test_register_config(manager, broker):
     with pytest.raises(ManagerError):
         manager.register_start(now, version)
 
-    assert CONFIG == manager.get_state()
+    expected_config_dump = CONFIG
+    expected_config_dump['type'] = 'config_{}'.format(__name__)
+
+    assert expected_config_dump == manager.get_state()
 
     # Find the dump file
     dump_files = os.listdir(broker)
@@ -93,9 +99,6 @@ def test_register_config(manager, broker):
         minutes=1)
     assert datetime.strptime(start_dump['state']['time'],
                              TIMESTAMP_FORMAT) - datetime.utcnow() < timedelta(minutes=1)
-
-    expected_config_dump = CONFIG
-    expected_config_dump['type'] = 'config_{}'.format(__name__)
 
     assert config_dump['state'] == expected_config_dump
     assert datetime.strptime(
