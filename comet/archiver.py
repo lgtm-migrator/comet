@@ -81,7 +81,8 @@ class Archiver():
                 dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
                 dump_times = [f[:-10] for f in dump_files]
                 dump_times = [datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-                dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
+                if dump_files:
+                    dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
 
                 new_times = list(filter(lambda t: t > time_last_scraped, dump_times))
 
