@@ -7,6 +7,8 @@ python:
     - 3.7
 notifications:
     email: false
+addons:
+    mariadb: '10.0'
 
 before_install:
     - pip install pycodestyle

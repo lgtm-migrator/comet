@@ -26,6 +26,8 @@ G = {'b': 1}
 H = {'blubb': 'bla'}
 J = {'meta': 'data'}
 
+dir = tempfile.mkdtemp()
+
 
 @pytest.fixture(scope='session', autouse=True)
 def manager():
@@ -34,9 +36,8 @@ def manager():
 
 @pytest.fixture(scope='session', autouse=True)
 def broker():
-    dir = tempfile.mkdtemp()
 
-    broker = Popen(['comet', '--debug', '1', '-d', dir])
+    broker = Popen(['comet', '--debug', '1', '-d', dir, "-t", 1])
     time.sleep(3)
     yield dir
     pid = broker.pid
