@@ -7,6 +7,8 @@ python:
     - 3.7
 notifications:
     email: false
+services:
+  - mysql
 addons:
     mariadb: '10.0'
 
