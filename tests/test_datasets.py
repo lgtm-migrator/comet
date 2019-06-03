@@ -15,6 +15,12 @@ from comet.broker import DEFAULT_PORT
 from comet.database import Database, Dataset
 from comet.manager import TIMESTAMP_FORMAT
 
+DB_HOST = "127.0.0.1"
+DB_NAME = "test"
+DB_USER = "travis"
+DB_PASSWD = ""
+DB_PORT = 3306
+
 # Some dummy states for testing:
 CONFIG = {'a': 1, 'b': 'fubar'}
 ABC = {'a': 0, 'b': 1, 'c': 2, 'd': 3}

@@ -31,7 +31,9 @@ class Archiver():
                  db_passwd):
 
         startup_time = datetime.datetime.utcnow()
-        config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval}
+        config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval, "db_name":
+                  db_name, "db_host": db_host, "db_port": db_port, "db_user": db_user, "db_passwd":
+                  db_passwd}
         self.dir = data_dump_path
         self.interval = scrape_interval
 
