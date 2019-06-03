@@ -7,6 +7,8 @@ import logging
 import requests
 import json
 
+LOG_FORMAT = '[%(asctime)s] %(name)s: %(message)s'
+
 # Endpoint names:
 REGISTER_STATE = '/register-state'
 REGISTER_DATASET = '/register-dataset'

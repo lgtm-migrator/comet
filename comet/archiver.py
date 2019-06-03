@@ -8,121 +8,20 @@ import asyncio
 import datetime
 import json
 import os
-import peewee
 import signal
-import warnings
 
 from time import sleep
 import logging
 from . import Manager, CometError, __version__
 from .broker import DEFAULT_PORT
-from .manager import TIMESTAMP_FORMAT
+from .database import Database
+from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
 
 # _STATE_DIR = "/var/lib/comet-archiver"
-LOG_FORMAT = '[%(asctime)s] %(name)s: %(message)s'
 
-
-mysql_db = peewee.MySQLDatabase(None)
 logging.basicConfig(format=LOG_FORMAT)
 logger = logging.getLogger("comet.archiver")
 logger.setLevel('INFO')
-
-
-class DatasetState(peewee.Model):
-    """Model for datasetstate table."""
-
-    class LongTextField(peewee.TextField):
-        """Peewee field supporting MySQL longtext."""
-
-        field_type = 'LONGTEXT'
-
-    hash = peewee.DecimalField(21, 0, primary_key=True)
-    type = peewee.CharField()
-    data = LongTextField()
-
-    class Meta:
-        """Connect model to database."""
-
-        database = mysql_db
-
-
-class DatasetCurrentState(peewee.Model):
-    """Model for datasetcurrentstate table."""
-
-    id = peewee.AutoField()
-    hash = peewee.DecimalField(21, 0)
-    time = peewee.DateTimeField()
-
-    class Meta:
-        """Connect model to database."""
-
-        database = mysql_db
-
-
-class DatasetStateType(peewee.Model):
-    """Model for datasetstatetype table."""
-
-    id = peewee.AutoField()
-    name = peewee.CharField()
-
-    class Meta:
-        """Connect model to database."""
-
-        database = mysql_db
-
-
-class Dataset(peewee.Model):
-    """Model for dataset table."""
-
-    hash = peewee.DecimalField(21, 0, primary_key=True)
-    root = peewee.BooleanField()
-    state = peewee.BigIntegerField()
-    time = peewee.DateTimeField()
-    types = peewee.CharField()
-
-    class Meta:
-        """Connect model to database."""
-
-        database = mysql_db
-
-
-def _insert_state(entry):
-    if entry["state"] is None:
-        # Add a row to dataset_state_current
-        DatasetCurrentState.insert(
-            {
-                "hash": entry["hash"],
-                "time": datetime.datetime.strptime(
-                    entry["time"], TIMESTAMP_FORMAT),
-            }).on_conflict_replace().execute()
-    else:
-        # Check if state type known to DB
-        type = entry["state"]["type"]
-        DatasetStateType.insert({"name": type}).on_conflict_ignore().execute()
-        # Add this state to the DB
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            DatasetState.insert(
-                {
-                    "hash": entry["hash"],
-                    "type": type,
-                    "data": entry["state"],
-                }
-            ).on_conflict_ignore().execute()
-
-
-def _insert_dataset(entry):
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        Dataset.insert(
-            {
-                "hash": entry["hash"],
-                "state": entry["ds"]["state"],
-                "root": entry["ds"]["is_root"],
-                "types": entry["ds"]["types"],
-                "time": entry["time"],
-            }
-        ).on_conflict_ignore().execute()
 
 
 class Archiver():
@@ -150,11 +49,12 @@ class Archiver():
         self.task = self.loop.create_task(self._scrape())
 
         # Open database connection
-        mysql_db.init(db_name, user=db_user, password=db_passwd, host=db_host, port=db_port)
-        mysql_db.connect()
+        self.mysql_db = Database(db_name, db_user, db_passwd, db_host, db_port)
 
-        # Create any missing table.
-        mysql_db.create_tables([DatasetState, DatasetCurrentState, Dataset, DatasetStateType])
+        # Buffer for entries to retry inserting later.
+        # Some entries have references to others. If a referenced entry is not in the database yet,
+        # the referencing will not be accepted and has to be buffered until it is accepted.
+        self.entry_buffer = list()
 
     def run(self):
         """Run comet archiver."""
@@ -195,36 +95,54 @@ class Archiver():
                             for line in json_file:
                                 line_num += 1
                                 entry = json.loads(line)
-                                logger.debug("Archiving {}".format(entry))
-                                if "state" in entry.keys():
-                                    try:
-                                        _insert_state(entry)
-                                    except KeyError as key:
-                                        logger.error("Entry in dump file {}:{} is missing key {}. "
-                                                     "Skipping! This is the entry:\n{}"
-                                                     .format(os.path.join(self.dir, dfile),
-                                                             line_num, key, entry))
-                                elif "ds" in entry.keys():
-                                    try:
-                                        _insert_dataset(entry)
-                                    except KeyError as key:
-                                        logger.error("Entry in dump file {}:{} is missing key {}. "
-                                                     "Skipping! This is the entry:\n{}"
-                                                     .format(os.path.join(self.dir, dfile),
-                                                             line_num, key, entry))
-                                else:
-                                    logger.warn("Entry in dump file {}:{} is neither a state "
-                                                "nor a dataset. Skipping! This is the entry:\n{}"
-                                                .format(os.path.join(self.dir, dfile), line_num,
-                                                        entry))
+                                self._insert_entry(entry, dfile, line_num)
                         logger.info("Archived {} entries from {}".format(line_num, dfile))
+
+                # Check if there is anything in the buffer that is accepted now
+                buffer_len = len(self.entry_buffer)
+                if buffer_len:
+                    logger.debug("Inserting {} entries from buffer.".format(buffer_len))
+                for i in range(buffer_len):
+                    entry = self.entry_buffer.pop(0)
+                    self._insert_entry(entry, dfile)
+                buffer_len = len(self.entry_buffer)
+                if buffer_len:
+                    logger.debug("Buffer still has {} entrie(s):".format(buffer_len))
+                for e in self.entry_buffer:
+                    logger.debug("{}".format(e))
 
                 logger.debug('Scraping again in {}.'
                              .format(datetime.timedelta(seconds=self.interval)))
+
                 await asyncio.sleep(self.interval)
         except BaseException:
             self.loop.stop()
             raise
+
+    def _insert_entry(self, entry, dfile, line_num="?"):
+        if "state" in entry.keys():
+            try:
+                if not self.mysql_db.insert_state(entry):
+                    # Retry later
+                    self.entry_buffer.append(entry)
+            except KeyError as key:
+                logger.error("Entry in dump file {}:{} is missing key {}. "
+                             "Skipping! This is the entry:\n{}"
+                             .format(os.path.join(self.dir, dfile),
+                                     line_num, key, entry))
+        elif "ds" in entry.keys():
+            try:
+                self.mysql_db.insert_dataset(entry)
+            except KeyError as key:
+                logger.error("Entry in dump file {}:{} is missing key {}. "
+                             "Skipping! This is the entry:\n{}"
+                             .format(os.path.join(self.dir, dfile),
+                                     line_num, key, entry))
+        else:
+            logger.warn("Entry in dump file {}:{} is neither a state "
+                        "nor a dataset. Skipping! This is the entry:\n{}"
+                        .format(os.path.join(self.dir, dfile), line_num,
+                                entry))
 
     def stop(self):
         """Stop the archiver."""

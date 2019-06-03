@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import time
+import peewee
 import pytest
 import shutil
 import signal
@@ -11,6 +12,7 @@ from subprocess import Popen
 from datetime import datetime, timedelta
 from comet import Manager, ManagerError
 from comet.broker import DEFAULT_PORT
+from comet.database import Database, Dataset
 from comet.manager import TIMESTAMP_FORMAT
 
 # Some dummy states for testing:
