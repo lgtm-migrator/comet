@@ -9,8 +9,6 @@ notifications:
     email: false
 services:
   - mysql
-addons:
-    mariadb: '10.0'
 
 before_install:
     - pip install pycodestyle
