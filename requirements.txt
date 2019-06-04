@@ -2,3 +2,4 @@ sanic ; python_version >= '3.6'
 peewee
 requests
 pymysql
+orjson

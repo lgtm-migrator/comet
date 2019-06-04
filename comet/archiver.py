@@ -6,7 +6,7 @@ Moves comet broker dumps to a MySQL database
 
 import asyncio
 import datetime
-import json
+import orjson as json
 import os
 import signal
 

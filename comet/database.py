@@ -2,7 +2,7 @@
 
 import datetime
 import logging
-import json
+import orjson as json
 import peewee
 
 from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
