@@ -480,7 +480,7 @@ async def tree(root):
 class Broker():
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, data_dump_path, file_lock_time, debug, recover):
+    def __init__(self, data_dump_path, file_lock_time, debug, recover, workers):
         global dumper
 
         self.config = {"data_dump_path": data_dump_path, "file_lock_time": file_lock_time,
@@ -489,6 +489,7 @@ class Broker():
         dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
         self.startup_time = datetime.datetime.utcnow()
+        self.n_workers = workers
 
     @staticmethod
     def _wait_and_register(startup_time, config):
@@ -561,11 +562,11 @@ class Broker():
         t = Thread(target=self._wait_and_register, args=(self.startup_time, self.config,))
         t.start()
 
-        server = app.create_server(host="0.0.0.0", port=DEFAULT_PORT, return_asyncio_server=True,
-                                   access_log=True, debug=self.debug)
+        app.run(workers=self.n_workers, host="0.0.0.0", port=DEFAULT_PORT,
+                return_asyncio_server=True,
+                access_log=True, debug=self.debug)
         loop = asyncio.get_event_loop()
         loop.slow_callback_duration = 10000
-        task = asyncio.ensure_future(server)
         signal(SIGINT, lambda s, f: loop.stop())
 
         try:
