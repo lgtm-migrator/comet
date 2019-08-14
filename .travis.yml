@@ -25,4 +25,4 @@ script:
 
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
-    - pytest
+    - pytest -s
