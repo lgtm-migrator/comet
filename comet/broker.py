@@ -7,6 +7,7 @@ import json
 import os
 
 from bisect import bisect_left
+from caput import time
 from signal import signal, SIGINT
 from threading import Thread
 from time import sleep
@@ -20,7 +21,6 @@ from . import __version__
 from .dumper import Dumper
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
 from .redis_cond_variable import redis_condition_notify, redis_condition_wait
-from .util import datetime_to_float, float_to_datetime
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -216,7 +216,7 @@ async def saveDataset(hash, ds, root):
     This should be called while a lock on the datasets is held.
     """
     # add a timestamp to the dataset (ms precision)
-    ts = datetime_to_float(datetime.datetime.utcnow())
+    ts = time.datetime_to_unix(datetime.datetime.utcnow())
 
     # get dicts from redis concurrently
     task = asyncio.ensure_future(redis.execute("hget", "datasets_of_root", root))
@@ -443,7 +443,7 @@ async def updateDatasets(request):
         return response.json(reply)
 
     if ts is 0:
-        ts = datetime_to_float(datetime.datetime.min)
+        ts = time.datetime_to_unix(datetime.datetime.min)
 
     # If the requested dataset is from a tree not known to the calling
     # instance, send them that whole tree.
@@ -456,7 +456,7 @@ async def updateDatasets(request):
         reply['datasets'] = await tree(root)
 
     # add a timestamp to the result before gathering update
-    reply['ts'] = datetime_to_float(datetime.datetime.utcnow())
+    reply['ts'] = time.datetime_to_unix(datetime.datetime.utcnow())
     reply['datasets'].update(await gatherUpdate(ts, roots))
 
     reply['result'] = "success"
