@@ -2,7 +2,6 @@ import json
 import os
 import tempfile
 import time
-import peewee
 import pytest
 import shutil
 import signal
@@ -10,16 +9,12 @@ import signal
 from subprocess import Popen
 
 from datetime import datetime, timedelta
-from comet import Manager, ManagerError
+from comet import Manager
 from comet.broker import DEFAULT_PORT
-from comet.database import Database, Dataset
+from chimedb.dataset import get_state, get_dataset, get_types
+import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
-DB_HOST = "127.0.0.1"
-DB_NAME = "test"
-DB_USER = "travis"
-DB_PASSWD = ""
-DB_PORT = 3306
 
 # Some dummy states for testing:
 CONFIG = {'a': 1, 'b': 'fubar'}
@@ -67,8 +62,7 @@ def broker():
 
 @pytest.fixture(scope='function', autouse=True)
 def archiver():
-    archiver = Popen(['comet_archiver', '-d', dir, "-i", "1", "-H", DB_HOST, "-u", DB_USER,
-                      "-P", DB_PASSWD, "-n", DB_NAME, "-p", str(DB_PORT)])
+    archiver = Popen(['comet_archiver', '-d', dir, "-i", "1"])
     yield dir
     pid = archiver.pid
     os.kill(pid, signal.SIGINT)
@@ -133,7 +127,7 @@ def test_register_config(manager, broker):
     assert config_dump['hash'] == manager._make_hash(expected_config_dump)
 
 
-# TODO: register stuff here, then with a new broke test recovery in test_recover
+# TODO: register stuff here, then with a new broker test recovery in test_recover
 def test_register(manager, broker):
     pass
 
@@ -159,16 +153,18 @@ def test_archiver(archiver, simple_ds, manager):
     state_id = simple_ds[1]
 
     # Open database connection
-    db = Database(DB_NAME, DB_USER, DB_PASSWD, DB_HOST, DB_PORT)
+    chimedb.connect()
 
-    ds = db.get_dataset(dset_id)
+    ds = get_dataset(dset_id)
     assert ds.state.id == state_id
     assert ds.root is True
 
-    types = db.get_types(dset_id)
+    types = get_types(dset_id)
     assert types == ["test"]
 
-    state = db.get_state(state_id)
+    state = get_state(state_id)
     assert state.id == state_id
     assert state.type.name == types[0]
     assert state.data == {"foo": "bar", "type": "test"}
+
+    chimedb.close()

@@ -354,7 +354,7 @@ class Manager:
         ----
         This only finds state that where registered locally with the comet manager.
 
-        TODO
+        Todo
         ----
         Ask the broker for unknown states.
 
@@ -401,7 +401,7 @@ class Manager:
         ----
         This only finds datasets that where registered locally with the comet manager.
 
-        TODO
+        Todo
         ----
         Ask the broker for unknown datasets.
 

@@ -28,4 +28,5 @@ script:
 
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
+    - cd tests
     - pytest

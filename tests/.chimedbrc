@@ -1,0 +1,12 @@
+connector:
+        db: test
+        user: travis
+        passwd: ""
+        host: 127.0.0.1
+        port: 3306
+connector_rw:
+        db: test
+        user: travis
+        passwd: ""
+        host: 127.0.0.1
+        port: 3306

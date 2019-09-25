@@ -1,7 +1,7 @@
 """
 Archiver for CoMeT.
 
-Moves comet broker dumps to a MySQL database
+Moves comet broker dumps to a database
 """
 
 import asyncio
@@ -12,9 +12,12 @@ import signal
 
 from time import sleep
 import logging
+
+import chimedb.core as chimedb
+import chimedb.dataset as db
+
 from . import Manager, CometError, __version__
 from .broker import DEFAULT_PORT
-from .database import Database
 from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
 
 # _STATE_DIR = "/var/lib/comet-archiver"
@@ -27,13 +30,10 @@ logger.setLevel('INFO')
 class Archiver():
     """Main class to run the comet archiver."""
 
-    def __init__(self, data_dump_path, scrape_interval, db_name, db_host, db_port, db_user,
-                 db_passwd):
+    def __init__(self, data_dump_path, scrape_interval):
 
         startup_time = datetime.datetime.utcnow()
-        config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval, "db_name":
-                  db_name, "db_host": db_host, "db_port": db_port, "db_user": db_user, "db_passwd":
-                  db_passwd}
+        config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval}
         self.dir = data_dump_path
         self.interval = scrape_interval
 
@@ -51,7 +51,10 @@ class Archiver():
         self.task = self.loop.create_task(self._scrape())
 
         # Open database connection
-        self.mysql_db = Database(db_name, db_user, db_passwd, db_host, db_port)
+        chimedb.connect(read_write=True)
+
+        # Create any missing table.
+        chimedb.orm.create_tables("chimedb.dataset")
 
         # Buffer for entries to retry inserting later.
         # Some entries have references to others. If a referenced entry is not in the database yet,
@@ -125,7 +128,7 @@ class Archiver():
     def _insert_entry(self, entry, dfile, line_num="?"):
         if "state" in entry.keys():
             try:
-                if not self.mysql_db.insert_state(entry):
+                if not db.insert_state(entry):
                     # Retry later
                     self.entry_buffer.append(entry)
             except KeyError as key:
@@ -135,7 +138,7 @@ class Archiver():
                                      line_num, key, entry))
         elif "ds" in entry.keys():
             try:
-                self.mysql_db.insert_dataset(entry)
+                db.insert_dataset(entry)
             except KeyError as key:
                 logger.error("Entry in dump file {}:{} is missing key {}. "
                              "Skipping! This is the entry:\n{}"
@@ -150,3 +153,4 @@ class Archiver():
     def stop(self):
         """Stop the archiver."""
         self.task.cancel()
+        chimedb.close()
