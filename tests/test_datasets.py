@@ -15,6 +15,10 @@ from chimedb.dataset import get_state, get_dataset, get_types
 import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
+CHIMEDBRC = os.path.join(os.getcwd() + "/.chimedbrc")
+CHIMEDBRC_MESSAGE = "Could not find {}. It is important that this test uses this " \
+                    "file to connect to a dummy database. Otherwise it could write " \
+                    "into a production database.".format(CHIMEDBRC)
 
 # Some dummy states for testing:
 CONFIG = {'a': 1, 'b': 'fubar'}
@@ -48,6 +52,10 @@ def manager():
 
 @pytest.fixture(scope='session', autouse=True)
 def broker():
+    # Make sure we don't write to the actual chime database
+    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+    os.environ["CHIMEDBRC"] = CHIMEDBRC
+
     broker = Popen(['comet', '--debug', '1', '-d', dir, "-t", "2"])
     time.sleep(3)
     yield dir
@@ -151,6 +159,10 @@ def test_recover(manager, broker, simple_ds):
 def test_archiver(archiver, simple_ds, manager):
     dset_id = simple_ds[0]
     state_id = simple_ds[1]
+
+    # Make sure we don't write to the actual chime database
+    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+    os.environ["CHIMEDBRC"] = CHIMEDBRC
 
     # Open database connection
     chimedb.connect()
