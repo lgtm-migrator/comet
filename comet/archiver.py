@@ -50,17 +50,6 @@ class Archiver:
         self.loop = asyncio.get_event_loop()
         self.task = self.loop.create_task(self._scrape())
 
-        # Open database connection
-        chimedb.connect(read_write=True)
-
-        # Create any missing table.
-        chimedb.orm.create_tables("chimedb.dataset")
-
-        # Buffer for entries to retry inserting later.
-        # Some entries have references to others. If a referenced entry is not in the database yet,
-        # the referencing will not be accepted and has to be buffered until it is accepted.
-        self.entry_buffer = list()
-
     def run(self):
         """Run comet archiver."""
         logger.info(
@@ -78,6 +67,17 @@ class Archiver:
 
     async def _scrape(self):
         try:
+            # Open database connection
+            chimedb.connect(read_write=True)
+
+            # Create any missing table.
+            chimedb.orm.create_tables("chimedb.dataset")
+
+            # Buffer for entries to retry inserting later.
+            # Some entries have references to others. If a referenced entry is not in the database yet,
+            # the referencing will not be accepted and has to be buffered until it is accepted.
+            self.entry_buffer = list()
+
             time_last_scraped = datetime.datetime.min
             while True:
 
