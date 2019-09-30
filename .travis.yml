@@ -7,6 +7,8 @@ python:
     - 3.7
 notifications:
     email: false
+services:
+  - mysql
 
 before_install:
     - pip install pycodestyle
@@ -16,6 +18,9 @@ before_install:
 install:
     - python -m pip install .
 
+before_script:
+  - mysql -e "CREATE DATABASE test;"
+
 script:
     # Run pycodestyle on all .py files in all subfolders
     - pycodestyle --max-line-length=99 .
@@ -23,4 +28,5 @@ script:
 
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
+    - cd tests
     - pytest

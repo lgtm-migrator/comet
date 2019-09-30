@@ -7,6 +7,8 @@ import logging
 import requests
 import json
 
+LOG_FORMAT = '[%(asctime)s] %(name)s: %(message)s'
+
 # Endpoint names:
 REGISTER_STATE = '/register-state'
 REGISTER_DATASET = '/register-dataset'
@@ -352,7 +354,7 @@ class Manager:
         ----
         This only finds state that where registered locally with the comet manager.
 
-        TODO
+        Todo
         ----
         Ask the broker for unknown states.
 
@@ -399,7 +401,7 @@ class Manager:
         ----
         This only finds datasets that where registered locally with the comet manager.
 
-        TODO
+        Todo
         ----
         Ask the broker for unknown datasets.
 

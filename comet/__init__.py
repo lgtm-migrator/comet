@@ -8,3 +8,4 @@ from sys import version_info
 if version_info.major > 2:
     from .broker import Broker
     from .dumper import Dumper
+    from .archiver import Archiver

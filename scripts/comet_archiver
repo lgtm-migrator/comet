@@ -1,0 +1,39 @@
+#!/usr/bin/env python3.7
+
+from comet import Archiver
+import argparse
+
+
+DEFAULT_DUMP_PATH = "./"
+DEFAULT_SCRAPE_INTERVAL = 360  # seconds
+
+
+def str2bool(v):
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+def start(args):
+    comet = Archiver(args.dump_path, args.scrape_interval)
+    comet.run()
+
+
+parser = argparse.ArgumentParser(description="This is comet's archiver.")
+parser.add_argument(
+        "-d", "--dump-path",
+        help="set dump path (default: '{}')".format(DEFAULT_DUMP_PATH),
+        default=DEFAULT_DUMP_PATH
+        )
+parser.add_argument(
+        "-i", "--scrape-interval",
+        help="set scrape interval in seconds (default: '{}')".format(DEFAULT_SCRAPE_INTERVAL),
+        default=DEFAULT_SCRAPE_INTERVAL,
+        type=int,
+        )
+parsed_args = parser.parse_args()
+
+start(parsed_args)
+exit(0)

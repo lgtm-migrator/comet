@@ -568,7 +568,8 @@ class Broker():
             dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
             dump_times = [f[:-10] for f in dump_files]
             dump_times = [datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-            dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
+            if dump_files:
+                dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
 
             threads = list()
             for dfile in dump_files:
@@ -629,7 +630,6 @@ class Broker():
         try:
             loop.run_forever()
         except BaseException:
-
             loop.stop()
             del dumper
             raise

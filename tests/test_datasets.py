@@ -9,9 +9,16 @@ import signal
 from subprocess import Popen
 
 from datetime import datetime, timedelta
-from comet import Manager, ManagerError
+from comet import Manager
 from comet.broker import DEFAULT_PORT
+from chimedb.dataset import get_state, get_dataset, get_types
+import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
+
+CHIMEDBRC = os.path.join(os.getcwd() + "/.chimedbrc")
+CHIMEDBRC_MESSAGE = "Could not find {}. It is important that this test uses this " \
+                    "file to connect to a dummy database. Otherwise it could write " \
+                    "into a production database.".format(CHIMEDBRC)
 
 # Some dummy states for testing:
 CONFIG = {'a': 1, 'b': 'fubar'}
@@ -26,17 +33,30 @@ G = {'b': 1}
 H = {'blubb': 'bla'}
 J = {'meta': 'data'}
 
+now = datetime.utcnow()
+version = '0.1.1'
+dir = tempfile.mkdtemp()
+
 
 @pytest.fixture(scope='session', autouse=True)
 def manager():
-    return Manager('localhost', DEFAULT_PORT)
+    manager = Manager('localhost', DEFAULT_PORT)
+
+    # Wait for broker to start up.
+    time.sleep(0.1)
+
+    manager.register_start(now, version)
+    manager.register_config(CONFIG)
+    return manager
 
 
 @pytest.fixture(scope='session', autouse=True)
 def broker():
-    dir = tempfile.mkdtemp()
+    # Make sure we don't write to the actual chime database
+    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+    os.environ["CHIMEDBRC"] = CHIMEDBRC
 
-    broker = Popen(['comet', '--debug', '1', '-d', dir])
+    broker = Popen(['comet', '--debug', '1', '-d', dir, "-t", "2"])
     time.sleep(3)
     yield dir
     pid = broker.pid
@@ -46,6 +66,23 @@ def broker():
     # Give the broker a moment to delete the .lock file
     time.sleep(.1)
     shutil.rmtree(dir)
+
+
+@pytest.fixture(scope='function', autouse=True)
+def archiver():
+    archiver = Popen(['comet_archiver', '-d', dir, "-i", "1"])
+    yield dir
+    pid = archiver.pid
+    os.kill(pid, signal.SIGINT)
+    archiver.terminate()
+
+
+@pytest.fixture(scope="session", autouse=False)
+def simple_ds(manager):
+    state_id = manager.register_state({'foo': "bar"}, "test")
+    dset_id = manager.register_dataset(state_id, None, ["test"], True)
+
+    yield (dset_id, state_id)
 
 
 def test_hash(manager):
@@ -59,15 +96,6 @@ def test_hash(manager):
 
 
 def test_register_config(manager, broker):
-    now = datetime.utcnow()
-    version = '0.1.1'
-
-    with pytest.raises(ManagerError):
-        manager.register_config(CONFIG)
-    manager.register_start(now, version)
-    manager.register_config(CONFIG)
-    with pytest.raises(ManagerError):
-        manager.register_start(now, version)
 
     expected_config_dump = CONFIG
     expected_config_dump['type'] = 'config_{}'.format(__name__)
@@ -107,15 +135,18 @@ def test_register_config(manager, broker):
     assert config_dump['hash'] == manager._make_hash(expected_config_dump)
 
 
-# TODO: register stuff here, then with a new broke test recovery in test_recover
+# TODO: register stuff here, then with a new broker test recovery in test_recover
 def test_register(manager, broker):
     pass
 
 
-def test_recover(manager, broker):
-    state_id = manager.register_state({'foo': "bar"}, "test")
+def test_recover(manager, broker, simple_ds):
+    dset_id = simple_ds[0]
 
-    dset_id = manager.register_dataset(state_id, None, ["test"], True)
+    # Give archiver a moment and make broker release dump file by registering another state.
+    time.sleep(2)
+    manager.register_config({'blubb': 1})
+    time.sleep(.1)
 
     ds = manager.get_dataset(dset_id)
     state = manager.get_state("test")
@@ -123,3 +154,29 @@ def test_recover(manager, broker):
     assert ds["is_root"] is True
     # TODO: fix hash function # assert ds["state"] == manager._make_hash(state)
     assert ds["types"] == ["test"]
+
+
+def test_archiver(archiver, simple_ds, manager):
+    dset_id = simple_ds[0]
+    state_id = simple_ds[1]
+
+    # Make sure we don't write to the actual chime database
+    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+    os.environ["CHIMEDBRC"] = CHIMEDBRC
+
+    # Open database connection
+    chimedb.connect()
+
+    ds = get_dataset(dset_id)
+    assert ds.state.id == state_id
+    assert ds.root is True
+
+    types = get_types(dset_id)
+    assert types == ["test"]
+
+    state = get_state(state_id)
+    assert state.id == state_id
+    assert state.type.name == types[0]
+    assert state.data == {"foo": "bar", "type": "test"}
+
+    chimedb.close()

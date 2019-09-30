@@ -1,2 +1,7 @@
 sanic ; python_version >= '3.6'
+peewee
 requests
+pymysql
+orjson
+chimedb @ git+https://github.com/chime-experiment/chimedb.git
+chimedb.dataset @ git+https://github.com/chime-experiment/chimedb_dataset.git

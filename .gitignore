@@ -1,0 +1,9 @@
+*.orig
+*.dump
+__pycache__
+*.pyc
+.idea
+.pytest_cache
+comet.egg-info
+dist
+build
