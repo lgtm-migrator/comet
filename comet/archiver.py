@@ -4,12 +4,10 @@ Archiver for CoMeT.
 Moves comet broker dumps to a database
 """
 
-import asyncio
 import datetime
 import orjson as json
 from pathlib import Path
-import signal
-
+from time import sleep
 import logging
 
 import chimedb.core as chimedb
@@ -47,9 +45,6 @@ class Archiver:
             )
             exit(1)
 
-        self.loop = asyncio.get_event_loop()
-        self.task = self.loop.create_task(self._scrape())
-
         # Open database connection
         chimedb.connect(read_write=True)
 
@@ -69,74 +64,63 @@ class Archiver:
             )
         )
 
-        signal.signal(signal.SIGINT, lambda s, f: self.loop.stop())
+        self._scrape()
 
-        try:
-            self.loop.run_forever()
-        except asyncio.CancelledError:
-            pass
+    def _scrape(self):
+        time_last_scraped = datetime.datetime.min
+        while True:
 
-    async def _scrape(self):
-        try:
-            time_last_scraped = datetime.datetime.min
-            while True:
+            # Find the dumped files
+            dump_files = Path(self.dir).iterdir()
+            dump_files = list(
+                filter(lambda x: x.as_posix().endswith("data.dump"), dump_files)
+            )
+            dump_times = [f.name[:-10] for f in dump_files]
+            dump_times = [
+                datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times
+            ]
+            if dump_files:
+                dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
 
-                # Find the dumped files
-                dump_files = Path(self.dir).iterdir()
-                dump_files = list(
-                    filter(lambda x: x.as_posix().endswith("data.dump"), dump_files)
+            new_times = list(filter(lambda t: t > time_last_scraped, dump_times))
+
+            for time in new_times:
+                dfile = dump_files[dump_times.index(time)]
+
+                # Only read files that don't have a lock file.
+                if not Path(self.dir).joinpath("{}.lock".format(dfile)).is_file():
+                    # Set time_last_scraped to the timestamp of this file
+                    time_last_scraped = time
+                    with open(
+                        Path(self.dir).joinpath(dfile).as_posix(), "r"
+                    ) as json_file:
+                        line_num = 0
+                        for line in json_file:
+                            line_num += 1
+                            entry = json.loads(line)
+                            self._insert_entry(entry, dfile, line_num)
+                    logger.info("Archived {} entries from {}".format(line_num, dfile))
+
+            # Check if there is anything in the buffer that is accepted now
+            buffer_len = len(self.entry_buffer)
+            if buffer_len:
+                logger.debug("Inserting {} entries from buffer.".format(buffer_len))
+            for i in range(buffer_len):
+                entry = self.entry_buffer.pop(0)
+                self._insert_entry(entry, dfile)
+            buffer_len = len(self.entry_buffer)
+            if buffer_len:
+                logger.debug("Buffer still has {} entrie(s):".format(buffer_len))
+            for e in self.entry_buffer:
+                logger.debug("{}".format(e))
+
+            logger.debug(
+                "Scraping again in {}.".format(
+                    datetime.timedelta(seconds=self.interval)
                 )
-                dump_times = [f.name[:-10] for f in dump_files]
-                dump_times = [
-                    datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times
-                ]
-                if dump_files:
-                    dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
+            )
 
-                new_times = list(filter(lambda t: t > time_last_scraped, dump_times))
-
-                for time in new_times:
-                    dfile = dump_files[dump_times.index(time)]
-
-                    # Only read files that don't have a lock file.
-                    if not Path(self.dir).joinpath("{}.lock".format(dfile)).is_file():
-                        # Set time_last_scraped to the timestamp of this file
-                        time_last_scraped = time
-                        with open(
-                            Path(self.dir).joinpath(dfile).as_posix(), "r"
-                        ) as json_file:
-                            line_num = 0
-                            for line in json_file:
-                                line_num += 1
-                                entry = json.loads(line)
-                                self._insert_entry(entry, dfile, line_num)
-                        logger.info(
-                            "Archived {} entries from {}".format(line_num, dfile)
-                        )
-
-                # Check if there is anything in the buffer that is accepted now
-                buffer_len = len(self.entry_buffer)
-                if buffer_len:
-                    logger.debug("Inserting {} entries from buffer.".format(buffer_len))
-                for i in range(buffer_len):
-                    entry = self.entry_buffer.pop(0)
-                    self._insert_entry(entry, dfile)
-                buffer_len = len(self.entry_buffer)
-                if buffer_len:
-                    logger.debug("Buffer still has {} entrie(s):".format(buffer_len))
-                for e in self.entry_buffer:
-                    logger.debug("{}".format(e))
-
-                logger.debug(
-                    "Scraping again in {}.".format(
-                        datetime.timedelta(seconds=self.interval)
-                    )
-                )
-
-                await asyncio.sleep(self.interval)
-        except BaseException:
-            self.loop.stop()
-            raise
+            sleep(self.interval)
 
     def _insert_entry(self, entry, dfile, line_num="?"):
         if "state" in entry.keys():
@@ -168,8 +152,3 @@ class Archiver:
                     Path(self.dir).joinpath(dfile), line_num, entry
                 )
             )
-
-    def stop(self):
-        """Stop the archiver."""
-        self.task.cancel()
-        chimedb.close()
