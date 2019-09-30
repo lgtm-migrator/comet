@@ -10,7 +10,6 @@ import orjson as json
 import os
 import signal
 
-from time import sleep
 import logging
 
 import chimedb.core as chimedb
@@ -20,7 +19,6 @@ from . import Manager, CometError, __version__
 from .broker import DEFAULT_PORT
 from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
 
-# _STATE_DIR = "/var/lib/comet-archiver"
 
 logging.basicConfig(format=LOG_FORMAT)
 logger = logging.getLogger("comet.archiver")
@@ -37,7 +35,6 @@ class Archiver:
         self.dir = data_dump_path
         self.interval = scrape_interval
 
-        sleep(1)
         manager = Manager("localhost", DEFAULT_PORT)
         try:
             manager.register_start(startup_time, __version__)
