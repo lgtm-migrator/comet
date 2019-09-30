@@ -142,10 +142,10 @@ class Archiver:
                              .format(Path(self.dir).joinpath(dfile),
                                      line_num, key, entry))
         else:
-            logger.warn("Entry in dump file {}:{} is neither a state "
-                        "nor a dataset. Skipping! This is the entry:\n{}"
-                        .format(Path(self.dir).joinpath(dfile), line_num,
-                                entry))
+            logger.warning("Entry in dump file {}:{} is neither a state "
+                           "nor a dataset. Skipping! This is the entry:\n{}"
+                           .format(Path(self.dir).joinpath(dfile), line_num,
+                                   entry))
 
     def stop(self):
         """Stop the archiver."""
