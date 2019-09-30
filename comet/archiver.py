@@ -27,7 +27,7 @@ logger = logging.getLogger("comet.archiver")
 logger.setLevel('INFO')
 
 
-class Archiver():
+class Archiver:
     """Main class to run the comet archiver."""
 
     def __init__(self, data_dump_path, scrape_interval):
