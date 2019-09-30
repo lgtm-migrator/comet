@@ -7,7 +7,7 @@ Moves comet broker dumps to a database
 import asyncio
 import datetime
 import orjson as json
-import os
+from pathlib import Path
 import signal
 
 import logging
@@ -77,9 +77,9 @@ class Archiver:
             while True:
 
                 # Find the dumped files
-                dump_files = os.listdir(self.dir)
-                dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
-                dump_times = [f[:-10] for f in dump_files]
+                dump_files = Path(self.dir).iterdir()
+                dump_files = list(filter(lambda x: x.as_posix().endswith("data.dump"), dump_files))
+                dump_times = [f.name[:-10] for f in dump_files]
                 dump_times = [datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
                 if dump_files:
                     dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
@@ -90,10 +90,10 @@ class Archiver:
                     dfile = dump_files[dump_times.index(time)]
 
                     # Only read files that don't have a lock file.
-                    if not os.path.isfile(os.path.join(self.dir, "{}.lock".format(dfile))):
+                    if not Path(self.dir).joinpath("{}.lock".format(dfile)).is_file():
                         # Set time_last_scraped to the timestamp of this file
                         time_last_scraped = time
-                        with open(os.path.join(self.dir, dfile), 'r') as json_file:
+                        with open(Path(self.dir).joinpath(dfile).as_posix(), "r") as json_file:
                             line_num = 0
                             for line in json_file:
                                 line_num += 1
@@ -131,7 +131,7 @@ class Archiver:
             except KeyError as key:
                 logger.error("Entry in dump file {}:{} is missing key {}. "
                              "Skipping! This is the entry:\n{}"
-                             .format(os.path.join(self.dir, dfile),
+                             .format(Path(self.dir).joinpath(dfile),
                                      line_num, key, entry))
         elif "ds" in entry.keys():
             try:
@@ -139,12 +139,12 @@ class Archiver:
             except KeyError as key:
                 logger.error("Entry in dump file {}:{} is missing key {}. "
                              "Skipping! This is the entry:\n{}"
-                             .format(os.path.join(self.dir, dfile),
+                             .format(Path(self.dir).joinpath(dfile),
                                      line_num, key, entry))
         else:
             logger.warn("Entry in dump file {}:{} is neither a state "
                         "nor a dataset. Skipping! This is the entry:\n{}"
-                        .format(os.path.join(self.dir, dfile), line_num,
+                        .format(Path(self.dir).joinpath(dfile), line_num,
                                 entry))
 
     def stop(self):
