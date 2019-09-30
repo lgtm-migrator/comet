@@ -39,7 +39,7 @@ class Archiver:
         try:
             manager.register_start(startup_time, __version__)
             manager.register_config(config)
-        except CometError as exc:
+        except (CometError, ConnectionError) as exc:
             logger.error('Comet archiver failed registering its startup and initial config: {}'
                          .format(exc))
             exit(1)
