@@ -57,13 +57,13 @@ async def status(request):
 
 
 @app.route("/register-external-state", methods=["POST"])
-async def externalState(request):
+async def external_state(request):
     """Register an external state that is detached from any dataset."""
     hash = request.json["hash"]
     type = request.json["type"]
     logger.debug("Received external state: {} with hash {}".format(type, hash))
 
-    result = await registerState(request)
+    result = await register_state(request)
 
     async with await lock_manager.lock("external_state_lock"):
         await redis.execute("hset", "external_state", type, hash)
@@ -85,7 +85,7 @@ async def externalState(request):
 
 
 @app.route("/register-state", methods=["POST"])
-async def registerState(request):
+async def register_state(request):
     """Register a dataset state with the comet broker.
 
     This should only ever be called by kotekan's datasetManager.
@@ -120,7 +120,7 @@ async def registerState(request):
 
 
 @app.route("/send-state", methods=["POST"])
-async def sendState(request):
+async def send_state(request):
     """Send a dataset state to CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
@@ -167,7 +167,7 @@ async def sendState(request):
 
 
 @app.route("/register-dataset", methods=["POST"])
-async def registerDataset(request):
+async def register_dataset(request):
     """Register a dataset with CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
@@ -177,9 +177,9 @@ async def registerDataset(request):
     logger.debug(
         "register-dataset: Registering new dataset with hash {} : {}".format(hash, ds)
     )
-    dataset_valid = await checkDataset(ds)
+    dataset_valid = await check_dataset(ds)
     reply = dict()
-    root = await findRoot(hash, ds)
+    root = await find_root(hash, ds)
 
     # Only dump new datasets.
     dump = False
@@ -202,7 +202,7 @@ async def registerDataset(request):
                 reply["result"] = "success"
         elif dataset_valid:
             # save the dataset
-            await saveDataset(hash, ds, root)
+            await save_dataset(hash, ds, root)
             dump = request.json.get("dump", True)
 
             reply["result"] = "success"
@@ -225,7 +225,7 @@ async def registerDataset(request):
     return response.json(reply)
 
 
-async def saveDataset(hash, ds, root):
+async def save_dataset(hash, ds, root):
     """Save the given dataset, its hash and a current timestamp.
 
     This should be called while a lock on the datasets is held.
@@ -275,7 +275,7 @@ async def saveDataset(hash, ds, root):
     await asyncio.wait({task1, task2, task3})
 
 
-async def gatherUpdate(ts, roots):
+async def gather_update(ts, roots):
     """Gather the update for a given time and roots.
 
     Returns a dict of dataset ID -> dataset with all datasets with the
@@ -311,43 +311,43 @@ async def gatherUpdate(ts, roots):
     return update
 
 
-async def findRoot(hash, ds):
+async def find_root(hash, ds):
     """Return the dataset Id of the root of this dataset."""
     root = hash
     while not ds["is_root"]:
         root = ds["base_dset"]
         found = await wait_for_dset(root)
         if not found:
-            logger.error("findRoot: dataset {} not found.".format(hash))
+            logger.error("find_root: dataset {} not found.".format(hash))
             return None
         ds = await redis.execute("hget", "datasets", root)
     return root
 
 
-async def checkDataset(ds):
+async def check_dataset(ds):
     """Check if a dataset is valid.
 
     For a dataset to be valid, the state and base dataset it references to
     have to exist. If it is a root dataset, the base dataset does not have
     to exist.
     """
-    logger.debug("checkDataset: Checking dataset: {}".format(ds))
+    logger.debug("check_dataset: Checking dataset: {}".format(ds))
     found = await wait_for_state(ds["state"])
     if not found:
-        logger.debug("checkDataset: State of dataset unknown: {}".format(ds))
+        logger.debug("check_dataset: State of dataset unknown: {}".format(ds))
         return False
     if ds["is_root"]:
-        logger.debug("checkDataset: dataset {} OK".format(ds))
+        logger.debug("check_dataset: dataset {} OK".format(ds))
         return True
     found = await wait_for_dset(ds["base_dset"])
     if not found:
-        logger.debug("checkDataset: Base dataset of dataset unknown: {}".format(ds))
+        logger.debug("check_dataset: Base dataset of dataset unknown: {}".format(ds))
         return False
     return True
 
 
 @app.route("/request-state", methods=["POST"])
-async def requestState(request):
+async def request_state(request):
     """Request the state with the given ID.
 
     This is called by kotekan's datasetManager.
@@ -453,7 +453,7 @@ async def wait_for_state(id):
 
 
 @app.route("/update-datasets", methods=["POST"])
-async def updateDatasets(request):
+async def update_datasets(request):
     """Get an update on the datasets.
 
     Request all nodes that where added after the given timestamp.
@@ -495,7 +495,7 @@ async def updateDatasets(request):
     # If the requested dataset is from a tree not known to the calling
     # instance, send them that whole tree.
     ds = json.loads(await redis.execute("hget", "datasets", ds_id))
-    root = await findRoot(ds_id, ds)
+    root = await find_root(ds_id, ds)
     if root is None:
         logger.error("update-datasets: Root of dataset {} not found.".format(ds_id))
         reply["result"] = "Root of dataset {} not found.".format(ds_id)
@@ -504,7 +504,7 @@ async def updateDatasets(request):
 
     # add a timestamp to the result before gathering update
     reply["ts"] = time.datetime_to_unix(datetime.datetime.utcnow())
-    reply["datasets"].update(await gatherUpdate(ts, roots))
+    reply["datasets"].update(await gather_update(ts, roots))
 
     reply["result"] = "success"
     logger.debug("update-datasets: Answering with {}.".format(reply))
