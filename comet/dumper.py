@@ -17,7 +17,9 @@ class Dumper:
 
     def __init__(self, path, file_lock_time):
         if not os.path.isdir(path):
-            logger.error("dump-path '{}' does not exist or is not a directory.".format(path))
+            logger.error(
+                "dump-path '{}' does not exist or is not a directory.".format(path)
+            )
             exit(1)
         self.lock_file = None
         self.path = path
@@ -52,10 +54,10 @@ class Dumper:
         self.lock_file = lock_file
         await redis.execute("set", "dumper_open_file", open_file)
         await redis.execute("set", "dumper_lock_file", lock_file)
-        open(lock_file, 'x').close()
-        open(open_file, 'x').close()
+        open(lock_file, "x").close()
+        open(open_file, "x").close()
 
-        logger.debug('Created new file: {}'.format(open_file))
+        logger.debug("Created new file: {}".format(open_file))
 
     async def dump(self, data, redis, lock_manager):
         """
@@ -67,8 +69,8 @@ class Dumper:
             JSON object to dump.
         """
         # Make sure the dump has a timestamp
-        if 'time' not in data.keys():
-            data['time'] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
+        if "time" not in data.keys():
+            data["time"] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
 
         async with await lock_manager.lock("dumper"):
             open_time = await redis.execute("get", "dumper_open_time")
@@ -82,7 +84,7 @@ class Dumper:
             open_file = await redis.execute("get", "dumper_open_file")
 
             # Dump to file
-            with open(open_file, 'a') as dump_file:
+            with open(open_file, "a") as dump_file:
                 json.dump(data, dump_file)
-                dump_file.write('\n')
+                dump_file.write("\n")
                 dump_file.flush()

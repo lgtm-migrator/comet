@@ -24,14 +24,14 @@ from .redis_cond_variable import redis_condition_notify, redis_condition_wait
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
-redis_instance = [('localhost', 6379)]
+redis_instance = [("localhost", 6379)]
 
 app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 600
 app.config.RESPONSE_TIMEOUT = 600
 
 
-@app.route('/status', methods=['GET'])
+@app.route("/status", methods=["GET"])
 async def status(request):
     """
     Get status of CoMeT (dataset-broker).
@@ -40,7 +40,7 @@ async def status(request):
 
     curl -X GET http://localhost:12050/status
     """
-    logger.debug('status: Received status request')
+    logger.debug("status: Received status request")
 
     reply = dict()
 
@@ -50,18 +50,18 @@ async def status(request):
     (get_states_task,), _ = await asyncio.wait({get_states_task})
     reply["states"] = get_states_task.result()
 
-    logger.debug('states: {}'.format(reply["states"]))
-    logger.debug('datasets: {}'.format(reply["datasets"]))
+    logger.debug("states: {}".format(reply["states"]))
+    logger.debug("datasets: {}".format(reply["datasets"]))
 
     return response.json(reply)
 
 
-@app.route('/register-external-state', methods=['POST'])
+@app.route("/register-external-state", methods=["POST"])
 async def externalState(request):
     """Register an external state that is detached from any dataset."""
-    hash = request.json['hash']
-    type = request.json['type']
-    logger.debug('Received external state: {} with hash {}'.format(type, hash))
+    hash = request.json["hash"]
+    type = request.json["type"]
+    logger.debug("Received external state: {} with hash {}".format(type, hash))
 
     result = await registerState(request)
 
@@ -71,12 +71,12 @@ async def externalState(request):
             ext_state_list = await redis.execute("hgetall", "external_state")
             # hgetall returns a list with keys and values... sort it into a dict:
             ext_state_dict = dict(zip(ext_state_list[0::2], ext_state_list[1::2]))
-            ext_state_dump = {'external-state': ext_state_dict}
+            ext_state_dump = {"external-state": ext_state_dict}
 
     # Dump to file:
     if request.json.get("dump", True):
-        if 'time' in request.json:
-            ext_state_dump['time'] = request.json['time']
+        if "time" in request.json:
+            ext_state_dump["time"] = request.json["time"]
         await dumper.dump(ext_state_dump, redis, lock_manager)
 
     # TODO: tell kotekan that this happened
@@ -84,14 +84,16 @@ async def externalState(request):
     return result
 
 
-@app.route('/register-state', methods=['POST'])
+@app.route("/register-state", methods=["POST"])
 async def registerState(request):
     """Register a dataset state with the comet broker.
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json['hash']
-    logger.debug('register-state: Received register state request, hash: {}'.format(hash))
+    hash = request.json["hash"]
+    logger.debug(
+        "register-state: Received register state request, hash: {}".format(hash)
+    )
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
@@ -104,32 +106,32 @@ async def registerState(request):
 
             # otherwise, request it now
             await redis.execute("sadd", "requested_states", hash)
-            reply['request'] = "get_state"
-            reply['hash'] = hash
-            logger.debug('register-state: Asking for state, hash: {}'.format(hash))
+            reply["request"] = "get_state"
+            reply["hash"] = hash
+            logger.debug("register-state: Asking for state, hash: {}".format(hash))
 
     if request.json.get("dump", True):
         if state is not None:
             # Dump state to file
-            state_dump = {'state': None, 'hash': hash}
+            state_dump = {"state": None, "hash": hash}
             await dumper.dump(state_dump, redis, lock_manager)
 
     return response.json(reply)
 
 
-@app.route('/send-state', methods=['POST'])
+@app.route("/send-state", methods=["POST"])
 async def sendState(request):
     """Send a dataset state to CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json['hash']
-    state = request.json['state']
+    hash = request.json["hash"]
+    state = request.json["state"]
     if state:
-        type = state['type']
+        type = state["type"]
     else:
         type = None
-    logger.debug('send-state: Received {} state {}'.format(type, hash))
+    logger.debug("send-state: Received {} state {}".format(type, hash))
     reply = dict()
 
     # Lock states and check if we know this state already.
@@ -138,15 +140,19 @@ async def sendState(request):
         if found is not None:
             # if we know it already, does it differ?
             if found != state:
-                reply['result'] = "error: a different state is know to " \
-                                  "the broker with this hash: {}".format(found)
-                logger.warning('send-state: Failure receiving state: a different state with the '
-                               'same hash is: {}'.format(found))
+                reply["result"] = (
+                    "error: a different state is know to "
+                    "the broker with this hash: {}".format(found)
+                )
+                logger.warning(
+                    "send-state: Failure receiving state: a different state with the "
+                    "same hash is: {}".format(found)
+                )
             else:
-                reply['result'] = "success"
+                reply["result"] = "success"
         else:
             await redis.execute("hset", "states", hash, json.dumps(state))
-            reply['result'] = "success"
+            reply["result"] = "success"
             await redis_condition_notify(redis, "states")
 
     # Remove it from the set of requested states (if it's in there.)
@@ -154,21 +160,23 @@ async def sendState(request):
 
     if request.json.get("dump", True):
         # Dump state to file
-        state_dump = {'state': state, 'hash': hash}
+        state_dump = {"state": state, "hash": hash}
         await dumper.dump(state_dump, redis, lock_manager)
 
     return response.json(reply)
 
 
-@app.route('/register-dataset', methods=['POST'])
+@app.route("/register-dataset", methods=["POST"])
 async def registerDataset(request):
     """Register a dataset with CoMeT (the broker).
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json['hash']
-    ds = request.json['ds']
-    logger.debug('register-dataset: Registering new dataset with hash {} : {}'.format(hash, ds))
+    hash = request.json["hash"]
+    ds = request.json["ds"]
+    logger.debug(
+        "register-dataset: Registering new dataset with hash {} : {}".format(hash, ds)
+    )
     dataset_valid = await checkDataset(ds)
     reply = dict()
     root = await findRoot(hash, ds)
@@ -182,29 +190,36 @@ async def registerDataset(request):
         if found is not None:
             # if we know it already, does it differ?
             if found != ds:
-                reply['result'] = "error: a different dataset is know to" \
-                                  " the broker with this hash: {}".format(found)
-                logger.warning('register-dataset: Failure receiving dataset: a different dataset'
-                               ' with the same hash is: {}'.format(found))
+                reply["result"] = (
+                    "error: a different dataset is know to"
+                    " the broker with this hash: {}".format(found)
+                )
+                logger.warning(
+                    "register-dataset: Failure receiving dataset: a different dataset"
+                    " with the same hash is: {}".format(found)
+                )
             else:
-                reply['result'] = "success"
+                reply["result"] = "success"
         elif dataset_valid:
             # save the dataset
             await saveDataset(hash, ds, root)
             dump = request.json.get("dump", True)
 
-            reply['result'] = "success"
+            reply["result"] = "success"
             await redis_condition_notify(redis, "datasets")
         else:
-            reply['result'] = 'Dataset {} invalid.'.format(hash)
-            logger.debug('register-dataset: Received invalid dataset with hash {} : {}'
-                         .format(hash, ds))
+            reply["result"] = "Dataset {} invalid.".format(hash)
+            logger.debug(
+                "register-dataset: Received invalid dataset with hash {} : {}".format(
+                    hash, ds
+                )
+            )
 
     # Dump dataset to file
     if dump:
-        ds_dump = {'ds': ds, 'hash': hash}
-        if 'time' in request.json:
-            ds_dump['time'] = request.json['time']
+        ds_dump = {"ds": ds, "hash": hash}
+        if "time" in request.json:
+            ds_dump["time"] = request.json["time"]
         await dumper.dump(ds_dump, redis, lock_manager)
 
     return response.json(reply)
@@ -243,12 +258,18 @@ async def saveDataset(hash, ds, root):
 
     # save changes
     task1 = asyncio.ensure_future(
-        redis.execute("hset", "datasets_of_root", root, json.dumps(datasets_of_root)))
+        redis.execute("hset", "datasets_of_root", root, json.dumps(datasets_of_root))
+    )
     task2 = asyncio.ensure_future(
-        redis.execute("hset", "datasets_of_root_keys", root, json.dumps(datasets_of_root_keys)))
+        redis.execute(
+            "hset", "datasets_of_root_keys", root, json.dumps(datasets_of_root_keys)
+        )
+    )
 
     # Insert the dataset in the hashmap
-    task3 = asyncio.ensure_future(redis.execute("hset", "datasets", hash, json.dumps(ds)))
+    task3 = asyncio.ensure_future(
+        redis.execute("hset", "datasets", hash, json.dumps(ds))
+    )
 
     # Wait for all concurrent tasks
     await asyncio.wait({task1, task2, task3})
@@ -263,8 +284,12 @@ async def gatherUpdate(ts, roots):
     async with await lock_manager.lock("datasets_lock"):
         for r in roots:
             # Get both dicts from redis concurrently:
-            keys_task = asyncio.ensure_future(redis.execute("hget", "datasets_of_root_keys", r))
-            tree = reversed(json.loads(await redis.execute("hget", "datasets_of_root", r)))
+            keys_task = asyncio.ensure_future(
+                redis.execute("hget", "datasets_of_root_keys", r)
+            )
+            tree = reversed(
+                json.loads(await redis.execute("hget", "datasets_of_root", r))
+            )
             (keys_task,), _ = asyncio.wait(keys_task)
             keys = reversed(json.loads(keys_task.result()))
 
@@ -275,7 +300,9 @@ async def gatherUpdate(ts, roots):
             for n, k in zip(tree, keys):
                 if k < ts:
                     break
-                tasks.append(asyncio.ensure_future(redis.execute("hget", "datasets", n)))
+                tasks.append(
+                    asyncio.ensure_future(redis.execute("hget", "datasets", n))
+                )
 
         # Wait for all concurrent tasks
         tasks, _ = await asyncio.wait(tasks)
@@ -287,11 +314,11 @@ async def gatherUpdate(ts, roots):
 async def findRoot(hash, ds):
     """Return the dataset Id of the root of this dataset."""
     root = hash
-    while not ds['is_root']:
-        root = ds['base_dset']
+    while not ds["is_root"]:
+        root = ds["base_dset"]
         found = await wait_for_dset(root)
         if not found:
-            logger.error('findRoot: dataset {} not found.'.format(hash))
+            logger.error("findRoot: dataset {} not found.".format(hash))
             return None
         ds = await redis.execute("hget", "datasets", root)
     return root
@@ -304,22 +331,22 @@ async def checkDataset(ds):
     have to exist. If it is a root dataset, the base dataset does not have
     to exist.
     """
-    logger.debug('checkDataset: Checking dataset: {}'.format(ds))
-    found = await wait_for_state(ds['state'])
+    logger.debug("checkDataset: Checking dataset: {}".format(ds))
+    found = await wait_for_state(ds["state"])
     if not found:
-        logger.debug('checkDataset: State of dataset unknown: {}'.format(ds))
+        logger.debug("checkDataset: State of dataset unknown: {}".format(ds))
         return False
-    if ds['is_root']:
-        logger.debug('checkDataset: dataset {} OK'.format(ds))
+    if ds["is_root"]:
+        logger.debug("checkDataset: dataset {} OK".format(ds))
         return True
-    found = await wait_for_dset(ds['base_dset'])
+    found = await wait_for_dset(ds["base_dset"])
     if not found:
-        logger.debug('checkDataset: Base dataset of dataset unknown: {}'.format(ds))
+        logger.debug("checkDataset: Base dataset of dataset unknown: {}".format(ds))
         return False
     return True
 
 
-@app.route('/request-state', methods=['POST'])
+@app.route("/request-state", methods=["POST"])
 async def requestState(request):
     """Request the state with the given ID.
 
@@ -328,25 +355,25 @@ async def requestState(request):
     curl -d '{"state_id":42}' -X POST -H "Content-Type: application/json"
          http://localhost:12050/request-state
     """
-    id = request.json['id']
+    id = request.json["id"]
 
-    logger.debug('request-state: Received request for state with ID {}'.format(id))
+    logger.debug("request-state: Received request for state with ID {}".format(id))
     reply = dict()
-    reply['id'] = id
+    reply["id"] = id
 
     # Do we know this state ID?
-    logger.debug('request-state: waiting for state ID {}'.format(id))
+    logger.debug("request-state: waiting for state ID {}".format(id))
     found = await wait_for_state(id)
     if not found:
-        reply['result'] = "state ID {} unknown to broker.".format(id)
-        logger.info('request-state: State {} unknown to broker'.format(id))
+        reply["result"] = "state ID {} unknown to broker.".format(id)
+        logger.info("request-state: State {} unknown to broker".format(id))
         return response.json(reply)
-    logger.debug('request-state: found state ID {}'.format(id))
+    logger.debug("request-state: found state ID {}".format(id))
 
-    reply['state'] = await redis.execute("hget", "states", id)
+    reply["state"] = await redis.execute("hget", "states", id)
 
-    reply['result'] = "success"
-    logger.debug('request-state: Replying with state {}'.format(id))
+    reply["result"] = "success"
+    logger.debug("request-state: Replying with state {}".format(id))
     return response.json(reply)
 
 
@@ -358,22 +385,30 @@ async def wait_for_dset(id):
     if not await redis.execute("hexists", "datasets", id):
         # wait for half of kotekans timeout before we admit we don't have it
         await lock_manager.unlock(datasets_lock)
-        logger.debug('wait_for_ds: Waiting for dataset {}'.format(id))
+        logger.debug("wait_for_ds: Waiting for dataset {}".format(id))
         while True:
             # did someone send it to us by now?
             async with await lock_manager.lock("datasets_lock"):
                 try:
-                    await asyncio.wait_for(redis_condition_wait(redis, "datasets"), WAIT_TIME)
+                    await asyncio.wait_for(
+                        redis_condition_wait(redis, "datasets"), WAIT_TIME
+                    )
                 except (TimeoutError, CancelledError):
-                    logger.warning('wait_for_ds: Timeout ({}s) when waiting for dataset {}'
-                                   .format(WAIT_TIME, id))
+                    logger.warning(
+                        "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
+                            WAIT_TIME, id
+                        )
+                    )
                     return False
                 if await redis.execute("hexists", "datasets", id):
-                    logger.debug('wait_for_ds: Found dataset {}'.format(id))
+                    logger.debug("wait_for_ds: Found dataset {}".format(id))
                     break
         if not await redis.execute("hexists", "datasets", id):
-            logger.warning('wait_for_ds: Timeout ({}s) when waiting for dataset {}'
-                           .format(WAIT_TIME, id))
+            logger.warning(
+                "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
+                    WAIT_TIME, id
+                )
+            )
             found = False
     else:
         await lock_manager.unlock(datasets_lock)
@@ -387,29 +422,37 @@ async def wait_for_state(id):
     if not await redis.execute("hexists", "states", id):
         # wait for half of kotekans timeout before we admit we don't have it
         await lock_manager.unlock(states_lock)
-        logger.debug('wait_for_state: Waiting for state {}'.format(id))
+        logger.debug("wait_for_state: Waiting for state {}".format(id))
         while True:
             # did someone send it to us by now?
             async with await lock_manager.lock("states_lock"):
                 try:
-                    await asyncio.wait_for(redis_condition_wait(redis, "states"), WAIT_TIME)
+                    await asyncio.wait_for(
+                        redis_condition_wait(redis, "states"), WAIT_TIME
+                    )
                 except (TimeoutError, CancelledError):
-                    logger.warning('wait_for_ds: Timeout ({}s) when waiting for state {}'
-                                   .format(WAIT_TIME, id))
+                    logger.warning(
+                        "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
+                            WAIT_TIME, id
+                        )
+                    )
                     return False
                 if await redis.execute("hexists", "states", id):
-                    logger.debug('wait_for_ds: Found state {}'.format(id))
+                    logger.debug("wait_for_ds: Found state {}".format(id))
                     break
         if not await redis.execute("hexists", "states", id):
-            logger.warning('wait_for_state: Timeout ({}s) when waiting for state {}'
-                           .format(WAIT_TIME, id))
+            logger.warning(
+                "wait_for_state: Timeout ({}s) when waiting for state {}".format(
+                    WAIT_TIME, id
+                )
+            )
             found = False
     else:
         await lock_manager.unlock(states_lock)
     return found
 
 
-@app.route('/update-datasets', methods=['POST'])
+@app.route("/update-datasets", methods=["POST"])
 async def updateDatasets(request):
     """Get an update on the datasets.
 
@@ -426,20 +469,24 @@ async def updateDatasets(request):
     -H "Content-Type: application/json"
     http://localhost:12050/update-datasets
     """
-    ds_id = request.json['ds_id']
-    ts = request.json['ts']
-    roots = request.json['roots']
+    ds_id = request.json["ds_id"]
+    ts = request.json["ts"]
+    roots = request.json["roots"]
 
-    logger.debug('update-datasets: Received request for ancestors of dataset {} since timestamp '
-                 '{}, roots {}.'.format(ds_id, ts, roots))
+    logger.debug(
+        "update-datasets: Received request for ancestors of dataset {} since timestamp "
+        "{}, roots {}.".format(ds_id, ts, roots)
+    )
     reply = dict()
-    reply['datasets'] = dict()
+    reply["datasets"] = dict()
 
     # Do we know this ds ID?
     found = await wait_for_dset(ds_id)
     if not found:
-        reply['result'] = "update-datasets: Dataset ID {} unknown to broker.".format(ds_id)
-        logger.info('update-datasets: Dataset ID {} unknown.'.format(ds_id))
+        reply["result"] = "update-datasets: Dataset ID {} unknown to broker.".format(
+            ds_id
+        )
+        logger.info("update-datasets: Dataset ID {} unknown.".format(ds_id))
         return response.json(reply)
 
     if ts is 0:
@@ -450,26 +497,29 @@ async def updateDatasets(request):
     ds = json.loads(await redis.execute("hget", "datasets", ds_id))
     root = await findRoot(ds_id, ds)
     if root is None:
-        logger.error('update-datasets: Root of dataset {} not found.'.format(ds_id))
-        reply['result'] = 'Root of dataset {} not found.'.format(ds_id)
+        logger.error("update-datasets: Root of dataset {} not found.".format(ds_id))
+        reply["result"] = "Root of dataset {} not found.".format(ds_id)
     if root not in roots:
-        reply['datasets'] = await tree(root)
+        reply["datasets"] = await tree(root)
 
     # add a timestamp to the result before gathering update
-    reply['ts'] = time.datetime_to_unix(datetime.datetime.utcnow())
-    reply['datasets'].update(await gatherUpdate(ts, roots))
+    reply["ts"] = time.datetime_to_unix(datetime.datetime.utcnow())
+    reply["datasets"].update(await gatherUpdate(ts, roots))
 
-    reply['result'] = "success"
-    logger.debug('update-datasets: Answering with {}.'.format(reply))
+    reply["result"] = "success"
+    logger.debug("update-datasets: Answering with {}.".format(reply))
     return response.json(reply)
 
 
 async def tree(root):
     """Return a list of all nodes in the given tree."""
     async with await lock_manager.lock("datasets_lock"):
-        datasets_of_root = json.loads(await redis.execute("hget", "datasets_of_root", root))
+        datasets_of_root = json.loads(
+            await redis.execute("hget", "datasets_of_root", root)
+        )
         tasks = asyncio.ensure_future(
-            redis.execute("hget", "datasets", n) for n in datasets_of_root)
+            redis.execute("hget", "datasets", n) for n in datasets_of_root
+        )
 
         # Wait for all concurrent tasks
         tasks, _ = await asyncio.wait(tasks)
@@ -477,14 +527,18 @@ async def tree(root):
     return tree
 
 
-class Broker():
+class Broker:
     """Main class to run the comet dataset broker."""
 
     def __init__(self, data_dump_path, file_lock_time, debug, recover, workers):
         global dumper
 
-        self.config = {"data_dump_path": data_dump_path, "file_lock_time": file_lock_time,
-                       "debug": debug, "recover": recover}
+        self.config = {
+            "data_dump_path": data_dump_path,
+            "file_lock_time": file_lock_time,
+            "debug": debug,
+            "recover": recover,
+        }
 
         dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
@@ -499,8 +553,11 @@ class Broker():
         try:
             manager.register_start(startup_time, __version__)
         except CometError as exc:
-            logger.error('Comet failed registering its own startup and initial config: {}'
-                         .format(exc))
+            logger.error(
+                "Comet failed registering its own startup and initial config: {}".format(
+                    exc
+                )
+            )
             del dumper
             exit(1)
 
@@ -510,14 +567,18 @@ class Broker():
             dump_files = os.listdir(config["data_dump_path"])
             dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
             dump_times = [f[:-10] for f in dump_files]
-            dump_times = [datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
+            dump_times = [
+                datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times
+            ]
             if dump_files:
                 dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
 
             threads = list()
             for dfile in dump_files:
                 logger.info("Reading dump file: {}".format(dfile))
-                with open(os.path.join(config["data_dump_path"], dfile), 'r') as json_file:
+                with open(
+                    os.path.join(config["data_dump_path"], dfile), "r"
+                ) as json_file:
                     line_num = 0
                     for line in json_file:
                         line_num += 1
@@ -530,22 +591,38 @@ class Broker():
                                     state_type = state["type"]
                                 else:
                                     state_type = None
-                                manager.register_state(entry["state"], state_type, False,
-                                                       entry["time"], entry['hash'])
+                                manager.register_state(
+                                    entry["state"],
+                                    state_type,
+                                    False,
+                                    entry["time"],
+                                    entry["hash"],
+                                )
                         elif "ds" in entry.keys():
                             # States need to be registered parallelly, because some registrations
                             # make the broker wait for another state.
-                            threads.append(Thread(target=manager.register_dataset,
-                                                  args=(entry["ds"]["state"],
-                                                        entry["ds"].get("base_dset", None),
-                                                        entry["ds"]["types"],
-                                                        entry["ds"]["is_root"], False,
-                                                        entry["time"], entry["hash"])))
+                            threads.append(
+                                Thread(
+                                    target=manager.register_dataset,
+                                    args=(
+                                        entry["ds"]["state"],
+                                        entry["ds"].get("base_dset", None),
+                                        entry["ds"]["types"],
+                                        entry["ds"]["is_root"],
+                                        False,
+                                        entry["time"],
+                                        entry["hash"],
+                                    ),
+                                )
+                            )
                             threads[-1].start()
                         else:
-                            logger.warn("Dump file entry {}:{} has neither state nor dataset. "
-                                        "Skipping...\nThis is the entry: {}"
-                                        .format(dfile, line_num, entry))
+                            logger.warn(
+                                "Dump file entry {}:{} has neither state nor dataset. "
+                                "Skipping...\nThis is the entry: {}".format(
+                                    dfile, line_num, entry
+                                )
+                            )
 
             for t in threads:
                 t.join()
@@ -556,16 +633,26 @@ class Broker():
         """Run comet dataset broker."""
         global dumper
 
-        print("Starting CoMeT dataset_broker({}) using port {}."
-              .format(__version__, DEFAULT_PORT))
+        print(
+            "Starting CoMeT dataset_broker({}) using port {}.".format(
+                __version__, DEFAULT_PORT
+            )
+        )
 
         # Register config with broker
-        t = Thread(target=self._wait_and_register, args=(self.startup_time, self.config,))
+        t = Thread(
+            target=self._wait_and_register, args=(self.startup_time, self.config)
+        )
         t.start()
 
-        app.run(workers=self.n_workers, host="0.0.0.0", port=DEFAULT_PORT,
-                return_asyncio_server=True,
-                access_log=True, debug=self.debug)
+        app.run(
+            workers=self.n_workers,
+            host="0.0.0.0",
+            port=DEFAULT_PORT,
+            return_asyncio_server=True,
+            access_log=True,
+            debug=self.debug,
+        )
         loop = asyncio.get_event_loop()
         loop.slow_callback_duration = 10000
         signal(SIGINT, lambda s, f: loop.stop())
@@ -586,9 +673,7 @@ class Broker():
 async def _init_redis_async(_, loop):
     global redis
     global lock_manager
-    redis = await aioredis.create_redis_pool(
-        ("127.0.0.1", 6379), encoding="utf-8"
-    )
+    redis = await aioredis.create_redis_pool(("127.0.0.1", 6379), encoding="utf-8")
 
     # Create a lock manager:
     lock_manager = Aioredlock(redis_instance)

@@ -9,9 +9,10 @@ notifications:
     email: false
 services:
     - redis-server
+    - mysql
 
 before_install:
-    - pip install pycodestyle
+    - pip install black
     - pip install pydocstyle
     - pip install pytest
     - pip install future  # FIXME: somehow this doesn't get installed as a dependency of caput
@@ -19,11 +20,15 @@ before_install:
 install:
     - python -m pip install .
 
+before_script:
+  - mysql -e "CREATE DATABASE test;"
+
 script:
     # Run pycodestyle on all .py files in all subfolders
-    - pycodestyle --max-line-length=99 .
+    - black --check .
     - pydocstyle --convention=numpy .
 
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
+    - cd tests
     - pytest -s

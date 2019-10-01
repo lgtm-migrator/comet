@@ -4,3 +4,9 @@ redis
 requests
 sanic ; python_version >= '3.6'
 caput @ git+https://github.com/radiocosmology/caput.git
+peewee
+requests
+pymysql
+orjson
+chimedb @ git+https://github.com/chime-experiment/chimedb.git
+chimedb.dataset @ git+https://github.com/chime-experiment/chimedb_dataset.git

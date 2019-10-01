@@ -6,9 +6,7 @@ from comet.redis_cond_variable import redis_condition_wait, redis_condition_noti
 
 
 async def wait(name):
-    red = await aioredis.create_redis(
-        ("127.0.0.1", 6379), encoding="utf-8"
-    )
+    red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
     await redis_condition_wait(red, name)
     red.close()
     await red.wait_closed()
@@ -16,9 +14,7 @@ async def wait(name):
 
 
 async def notify(name):
-    red = await aioredis.create_redis(
-        ("127.0.0.1", 6379), encoding="utf-8"
-    )
+    red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
     await redis_condition_notify(red, name)
     red.close()
     await red.wait_closed()
@@ -43,6 +39,7 @@ async def test_cond_variable():
         assert w in done
         assert w.done() is True
         await w
+
 
 @pytest.mark.asyncio
 async def test_cond_two_variables():
