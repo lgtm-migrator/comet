@@ -464,7 +464,7 @@ async def update_datasets(request):
     This is called by kotekan's datasetManager.
 
     curl
-    -d '{"ds_id":2143,"ts":0}'
+    -d '{"ds_id":2143,"ts":0,"roots":[1,2,3]}'
     -X POST
     -H "Content-Type: application/json"
     http://localhost:12050/update-datasets
