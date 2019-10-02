@@ -8,12 +8,14 @@ python:
 notifications:
     email: false
 services:
-  - mysql
+    - redis-server
+    - mysql
 
 before_install:
     - pip install black
     - pip install pydocstyle
     - pip install pytest
+    - pip install future  # FIXME: somehow this doesn't get installed as a dependency of caput
 
 install:
     - python -m pip install .
@@ -29,4 +31,4 @@ script:
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
-    - pytest
+    - pytest -s
