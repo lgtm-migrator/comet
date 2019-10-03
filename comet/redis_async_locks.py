@@ -155,6 +155,7 @@ async def redis_condition_notify(redis, name):
 
     Parameters
     ----------
+    redis : An aioredis connection or pool.
     name : str
         Name of the condition variable.
     """
@@ -171,3 +172,17 @@ async def redis_condition_notify(redis, name):
         end
         """
     await redis.execute("eval", redis_notify_cond, 1, name)
+
+
+async def redis_condition_create(redis, name):
+    """
+    Create a condition variable.
+
+    Parameters
+    ----------
+    redis : An aioredis connection or pool.
+    name : str
+        Name of the condition variable.
+    """
+    name = "cond_{}".format(name)
+    await redis.execute("hset", "WAITING", name, 0)

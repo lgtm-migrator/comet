@@ -21,6 +21,7 @@ from .manager import Manager, CometError, TIMESTAMP_FORMAT
 from .redis_async_locks import (
     redis_condition_notify,
     redis_condition_wait,
+    redis_condition_create,
     Lock,
     redis_lock_create,
     redis_lock_acquire,
@@ -670,6 +671,8 @@ async def create_locks():
     await redis_lock_create(init_redis, "datasets")
     await redis_lock_create(init_redis, "external_states")
     await redis_lock_create(init_redis, "dump")
+    await redis_condition_create(init_redis, "states")
+    await redis_condition_create(init_redis, "datasets")
     init_redis.close()
     await init_redis.wait_closed()
 

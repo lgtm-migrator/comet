@@ -2,12 +2,13 @@ import asyncio
 import aioredis
 import pytest
 
-from comet.redis_async_locks import redis_condition_wait, redis_condition_notify
+from comet.redis_async_locks import redis_condition_wait, redis_condition_notify, redis_condition_create, redis_lock_create, Lock
 
 
 async def wait(name):
     red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
-    await redis_condition_wait(red, name)
+    async with Lock(red, name):
+        await redis_condition_wait(red, name)
     red.close()
     await red.wait_closed()
     del red
@@ -24,6 +25,11 @@ async def notify(name):
 @pytest.mark.asyncio
 async def test_cond_variable():
     name = "a"
+    red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
+    await redis_condition_create(red, name)
+    await redis_lock_create(red, name)
+    red.close()
+    await red.wait_closed()
 
     waiter = list()
     for i in range(20):
@@ -45,6 +51,13 @@ async def test_cond_variable():
 async def test_cond_two_variables():
     name_a = "a"
     name_b = "b"
+    red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
+    await redis_condition_create(red, name_a)
+    await redis_lock_create(red, name_a)
+    await redis_condition_create(red, name_b)
+    await redis_lock_create(red, name_b)
+    red.close()
+    await red.wait_closed()
 
     waiter_a = list()
     for i in range(20):
