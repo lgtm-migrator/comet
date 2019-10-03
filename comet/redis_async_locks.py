@@ -1,7 +1,39 @@
 """Condition variable using redis."""
 
 
-async def redis_create_lock(redis, name):
+class LockError(Exception):
+    """An error that happened while using a lock."""
+
+    def __init__(self, message: str):
+        """
+        Error with sync redis lock.
+
+        Parameters
+        ----------
+        message : str
+            Description of the error.
+        """
+        self.message = message
+
+
+class Lock:
+    """Async context manager for redis lock."""
+
+    def __init__(self, redis, name):
+        """Create context manager."""
+        self.name = name
+        self.redis = redis
+
+    async def __aenter__(self):
+        """Acquire lock."""
+        await redis_lock_acquire(self.redis, self.name)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        """Release lock."""
+        await redis_lock_release(self.redis, self.name)
+
+
+async def redis_lock_create(redis, name):
     """
     Create a lock.
 
@@ -11,16 +43,17 @@ async def redis_create_lock(redis, name):
     name : str
         Name of the lock.
 
-    Returns
-    -------
-    bool : False in case of error.
+    Raises
+    ------
+    LockError : If the name of the lock was already taken on creation.
     """
     name = "lock_{}".format(name)
 
     # clear the lock
     await redis.execute("del", name)
 
-    return (await redis.execute("lpush", name, 1)) == 1
+    if (await redis.execute("lpush", name, 1)) != 1:
+        raise LockError("Failure creating redis lock: {} (already used?)".format(name))
 
 
 async def redis_lock_acquire(redis, name):
@@ -33,13 +66,16 @@ async def redis_lock_acquire(redis, name):
     name : str
         Name of the lock.
 
-    Returns
-    -------
-    bool : False in case of error.
+    Raises
+    ------
+    LockError : If the lock stored in redis has an unexpected value.
     """
     name = "lock_{}".format(name)
 
-    return (await redis.execute("blpop", name, 0)) == [name, "1"]
+    if (await redis.execute("blpop", name, 0)) != [name, "1"]:
+        raise LockError(
+            "Failure acquiring lock: {} (unexpected value in redis lock)".format(name)
+        )
 
 
 async def redis_lock_release(redis, name):
@@ -52,13 +88,14 @@ async def redis_lock_release(redis, name):
     name : str
         Name of the lock.
 
-    Returns
-    -------
-    bool : False in case of error.
+    Raises
+    ------
+    LockError : If the lock was released already.
     """
     name = "lock_{}".format(name)
 
-    return (await redis.execute("lpush", name, 1)) == 1
+    if (await redis.execute("lpush", name, 1)) != 1:
+        raise LockError("Failure releasing lock: {} (released twice?)".format(name))
 
 
 async def redis_condition_wait(redis, name):

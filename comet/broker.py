@@ -1,6 +1,5 @@
 """REST Server for CoMeT (the Dataset Broker)."""
 import aioredis
-from aioredlock import Aioredlock
 import asyncio
 import datetime
 import json
@@ -20,7 +19,14 @@ from concurrent.futures import CancelledError
 from . import __version__
 from .dumper import Dumper
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-from .redis_async_locks import redis_condition_notify, redis_condition_wait
+from .redis_async_locks import (
+    redis_condition_notify,
+    redis_condition_wait,
+    Lock,
+    redis_lock_create,
+    redis_lock_acquire,
+    redis_lock_release,
+)
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -65,7 +71,7 @@ async def external_state(request):
 
     result = await register_state(request)
 
-    async with await lock_manager.lock("external_state_lock"):
+    async with Lock("external_states"):
         await redis.execute("hset", "external_state", type, hash)
         if request.json.get("dump", True):
             ext_state_list = await redis.execute("hgetall", "external_state")
@@ -77,7 +83,7 @@ async def external_state(request):
     if request.json.get("dump", True):
         if "time" in request.json:
             ext_state_dump["time"] = request.json["time"]
-        await dumper.dump(ext_state_dump, redis, lock_manager)
+        await dumper.dump(ext_state_dump, redis)
 
     # TODO: tell kotekan that this happened
 
@@ -97,7 +103,7 @@ async def register_state(request):
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
-    async with await lock_manager.lock("states_lock"):
+    async with Lock(redis, "states"):
         state = await redis.execute("hget", "states", hash)
         if state is None:
             # we don't know this state, did we request it already?
@@ -114,7 +120,7 @@ async def register_state(request):
         if state is not None:
             # Dump state to file
             state_dump = {"state": None, "hash": hash}
-            await dumper.dump(state_dump, redis, lock_manager)
+            await dumper.dump(state_dump, redis)
 
     return response.json(reply)
 
@@ -135,7 +141,7 @@ async def send_state(request):
     reply = dict()
 
     # Lock states and check if we know this state already.
-    async with await lock_manager.lock("states_lock"):
+    async with Lock(redis, "states"):
         found = await redis.execute("hget", "states", hash)
         if found is not None:
             # if we know it already, does it differ?
@@ -161,7 +167,7 @@ async def send_state(request):
     if request.json.get("dump", True):
         # Dump state to file
         state_dump = {"state": state, "hash": hash}
-        await dumper.dump(state_dump, redis, lock_manager)
+        await dumper.dump(state_dump, redis)
 
     return response.json(reply)
 
@@ -185,7 +191,7 @@ async def register_dataset(request):
     dump = False
 
     # Lack datasets and check if dataset already known.
-    async with await lock_manager.lock("datasets_lock"):
+    async with Lock(redis, "datasets"):
         found = await redis.execute("hget", "datasets", hash)
         if found is not None:
             # if we know it already, does it differ?
@@ -220,7 +226,7 @@ async def register_dataset(request):
         ds_dump = {"ds": ds, "hash": hash}
         if "time" in request.json:
             ds_dump["time"] = request.json["time"]
-        await dumper.dump(ds_dump, redis, lock_manager)
+        await dumper.dump(ds_dump, redis)
 
     return response.json(reply)
 
@@ -281,7 +287,7 @@ async def gather_update(ts, roots):
     Returns a dict of dataset ID -> dataset with all datasets with the
     given roots that were registered after the given timestamp.
     """
-    async with await lock_manager.lock("datasets_lock"):
+    async with Lock(redis, "datasets"):
         for r in roots:
             # Get both dicts from redis concurrently:
             keys_task = asyncio.ensure_future(
@@ -380,15 +386,15 @@ async def request_state(request):
 async def wait_for_dset(id):
     """Wait until the given dataset is present."""
     found = True
-    datasets_lock = await lock_manager.lock("datasets_lock")
+    await redis_lock_acquire(redis, "datasets")
 
     if not await redis.execute("hexists", "datasets", id):
         # wait for half of kotekans timeout before we admit we don't have it
-        await lock_manager.unlock(datasets_lock)
+        await redis_lock_release(redis, "datasets")
         logger.debug("wait_for_ds: Waiting for dataset {}".format(id))
         while True:
             # did someone send it to us by now?
-            async with await lock_manager.lock("datasets_lock"):
+            async with Lock(redis, "datasets"):
                 try:
                     await asyncio.wait_for(
                         redis_condition_wait(redis, "datasets"), WAIT_TIME
@@ -411,21 +417,21 @@ async def wait_for_dset(id):
             )
             found = False
     else:
-        await lock_manager.unlock(datasets_lock)
+        await redis_lock_release(redis, "datasets")
     return found
 
 
 async def wait_for_state(id):
     """Wait until the given state is present."""
     found = True
-    states_lock = await lock_manager.lock("states_lock")
+    await redis_lock_acquire(redis, "states")
     if not await redis.execute("hexists", "states", id):
         # wait for half of kotekans timeout before we admit we don't have it
-        await lock_manager.unlock(states_lock)
+        await redis_lock_release(redis, "states")
         logger.debug("wait_for_state: Waiting for state {}".format(id))
         while True:
             # did someone send it to us by now?
-            async with await lock_manager.lock("states_lock"):
+            async with Lock(redis, "states"):
                 try:
                     await asyncio.wait_for(
                         redis_condition_wait(redis, "states"), WAIT_TIME
@@ -448,7 +454,7 @@ async def wait_for_state(id):
             )
             found = False
     else:
-        await lock_manager.unlock(states_lock)
+        await redis_lock_release(redis, "states")
     return found
 
 
@@ -513,7 +519,7 @@ async def update_datasets(request):
 
 async def tree(root):
     """Return a list of all nodes in the given tree."""
-    async with await lock_manager.lock("datasets_lock"):
+    async with Lock(redis, "datasets"):
         datasets_of_root = json.loads(
             await redis.execute("hget", "datasets_of_root", root)
         )
@@ -639,6 +645,9 @@ class Broker:
             )
         )
 
+        # Create all redis locks before doing anything
+        asyncio.run(create_locks())
+
         # Register config with broker
         t = Thread(
             target=self._wait_and_register, args=(self.startup_time, self.config)
@@ -653,30 +662,24 @@ class Broker:
             access_log=True,
             debug=self.debug,
         )
-        loop = asyncio.get_event_loop()
-        loop.slow_callback_duration = 10000
-        signal(SIGINT, lambda s, f: loop.stop())
 
-        try:
-            loop.run_forever()
-        except BaseException:
 
-            loop.stop()
-            del dumper
-            raise
-        del dumper
-        t.join()
+async def create_locks():
+    """Create all redis locks."""
+    init_redis = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
+    await redis_lock_create(init_redis, "states")
+    await redis_lock_create(init_redis, "datasets")
+    await redis_lock_create(init_redis, "external_states")
+    await redis_lock_create(init_redis, "dump")
+    init_redis.close()
+    await init_redis.wait_closed()
 
 
 # Create the Redis connection pool, use sanic to start it so that it
 # ends up in the same event loop
 async def _init_redis_async(_, loop):
     global redis
-    global lock_manager
     redis = await aioredis.create_redis_pool(("127.0.0.1", 6379), encoding="utf-8")
-
-    # Create a lock manager:
-    lock_manager = Aioredlock(redis_instance)
 
 
 async def _close_redis_async(_, loop):

@@ -1,5 +1,4 @@
 aioredis
-aioredlock
 redis
 requests
 sanic ; python_version >= '3.6'

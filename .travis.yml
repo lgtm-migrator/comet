@@ -15,6 +15,7 @@ before_install:
     - pip install black
     - pip install pydocstyle
     - pip install pytest
+    - pip install pytest-asyncio
     - pip install future  # FIXME: somehow this doesn't get installed as a dependency of caput
 
 install:

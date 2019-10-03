@@ -2,7 +2,7 @@ import asyncio
 import aioredis
 import pytest
 
-from comet.redis_cond_variable import redis_condition_wait, redis_condition_notify
+from comet.redis_async_locks import redis_condition_wait, redis_condition_notify
 
 
 async def wait(name):

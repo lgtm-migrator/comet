@@ -8,6 +8,7 @@ import redis as redis_sync
 from sanic.log import logger
 
 from .manager import TIMESTAMP_FORMAT
+from .redis_async_locks import Lock
 
 FILENAME = "{}-data.dump"
 
@@ -59,7 +60,7 @@ class Dumper:
 
         logger.debug("Created new file: {}".format(open_file))
 
-    async def dump(self, data, redis, lock_manager):
+    async def dump(self, data, redis):
         """
         Dump json to file.
 
@@ -67,12 +68,14 @@ class Dumper:
         ----------
         data : json
             JSON object to dump.
+        redis : aioredis connection or pool
         """
         # Make sure the dump has a timestamp
         if "time" not in data.keys():
             data["time"] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
 
-        async with await lock_manager.lock("dumper"):
+        # This lock got created elsewhere
+        async with Lock(redis, "dump"):
             open_time = await redis.execute("get", "dumper_open_time")
             if open_time is None:
                 await self._new_file(redis)

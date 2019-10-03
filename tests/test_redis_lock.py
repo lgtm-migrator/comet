@@ -2,19 +2,24 @@ import asyncio
 import aioredis
 import pytest
 
-from comet.redis_async_locks import redis_create_lock, redis_lock_acquire, redis_lock_release
+from comet.redis_async_locks import (
+    redis_lock_create,
+    redis_lock_acquire,
+    redis_lock_release,
+    Lock,
+)
 
 
 async def acquire(name):
     red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
-    assert await redis_lock_acquire(red, name)
+    await redis_lock_acquire(red, name)
     red.close()
     await red.wait_closed()
 
 
 async def release(name):
     red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
-    assert await redis_lock_release(red, name)
+    await redis_lock_release(red, name)
     red.close()
     await red.wait_closed()
 
@@ -24,9 +29,8 @@ async def test_lock():
     name = "a"
 
     red = await aioredis.create_redis(("127.0.0.1", 6379), encoding="utf-8")
-    assert await redis_create_lock(red, name)
-    red.close()
-    await red.wait_closed()
+    await redis_lock_create(red, name)
+
     await asyncio.sleep(1)
 
     waiter = list()
@@ -45,3 +49,12 @@ async def test_lock():
     assert waiter[last].done()
 
     await release(name)
+
+    # trivial test of asynchronous context manager lock
+    name = "c"
+    await redis_lock_create(red, name)
+    async with Lock(red, name) as l_c:
+        print("I just locked {}".format(name))
+
+    red.close()
+    await red.wait_closed()
