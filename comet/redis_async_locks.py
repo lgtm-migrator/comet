@@ -157,5 +157,11 @@ async def redis_condition_notify(redis, name):
     #
     # PSEUDOCODE:
     #
-    # name = 1
-    return await redis.execute("lpush", name, "1")
+    # if waiting[name] > 0
+    #     name = 1
+    REDIS_NOTIFY_COND = """
+        if redis.call('hget', 'WAITING', KEYS[1]) ~= 0 then
+            redis.call('lpush', KEYS[1], "1")
+        end
+        """
+    await redis.execute("eval", REDIS_NOTIFY_COND, 1, name)
