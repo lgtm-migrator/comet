@@ -7,7 +7,6 @@ import os
 
 from bisect import bisect_left
 from caput import time
-from signal import signal, SIGINT
 from threading import Thread
 from time import sleep
 
