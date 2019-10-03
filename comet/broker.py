@@ -20,7 +20,7 @@ from concurrent.futures import CancelledError
 from . import __version__
 from .dumper import Dumper
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-from .redis_cond_variable import redis_condition_notify, redis_condition_wait
+from .redis_async_locks import redis_condition_notify, redis_condition_wait
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050

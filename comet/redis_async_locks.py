@@ -1,6 +1,66 @@
 """Condition variable using redis."""
 
 
+async def redis_create_lock(redis, name):
+    """
+    Create a lock.
+
+    Parameters
+    ----------
+    redis : An aioredis connection or pool.
+    name : str
+        Name of the lock.
+
+    Returns
+    -------
+    bool : False in case of error.
+    """
+    name = "lock_{}".format(name)
+
+    # clear the lock
+    await redis.execute("del", name)
+
+    return (await redis.execute("lpush", name, 1)) == 1
+
+
+async def redis_lock_acquire(redis, name):
+    """
+    Acquire a lock.
+
+    Parameters
+    ----------
+    redis : An aioredis connection or pool.
+    name : str
+        Name of the lock.
+
+    Returns
+    -------
+    bool : False in case of error.
+    """
+    name = "lock_{}".format(name)
+
+    return (await redis.execute("blpop", name, 0)) == [name, "1"]
+
+
+async def redis_lock_release(redis, name):
+    """
+    Release a lock.
+
+    Parameters
+    ----------
+    redis : An aioredis connection or pool.
+    name : str
+        Name of the lock.
+
+    Returns
+    -------
+    bool : False in case of error.
+    """
+    name = "lock_{}".format(name)
+
+    return (await redis.execute("lpush", name, 1)) == 1
+
+
 async def redis_condition_wait(redis, name):
     """
     Wait for a condition variable.
