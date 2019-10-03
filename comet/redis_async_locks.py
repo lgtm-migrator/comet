@@ -108,7 +108,7 @@ async def redis_condition_wait(redis, name):
     name : str
         Name of the condition variable.
     """
-    name = "cond_{}".format(name)
+    _name = "cond_{}".format(name)
 
     # register as a waiting process
     #
@@ -116,7 +116,10 @@ async def redis_condition_wait(redis, name):
     #
     # waiting = dict()
     # waiting[name] += 1
-    await redis.execute("hincrby", "WAITING", name, 1)
+    await redis.execute("hincrby", "WAITING", _name, 1)
+
+    # release the lock while waiting
+    await redis_lock_release(redis, name)
 
     # Wait for notification
     #
@@ -125,7 +128,10 @@ async def redis_condition_wait(redis, name):
     # while(True):
     #     if name:
     #         name = None
-    await redis.execute("blpop", name, 0)
+    await redis.execute("blpop", _name, 0)
+
+    # reacquire the lock
+    await redis_lock_acquire(redis, name)
 
     # Decrement number of waiting processes and reset notification.
     # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if WAITING/KEY[0] is zero:
@@ -135,12 +141,12 @@ async def redis_condition_wait(redis, name):
     # waiting[name] -= 1
     # if waiting[name] > 0:
     #     name = 1
-    REDIS_RESET_COND = """
+    redis_reset_cond = """
     if redis.call('hincrby', 'WAITING', KEYS[1], -1) ~= 0 then
         redis.call('lpush', KEYS[1], "1")
     end
     """
-    await redis.execute("eval", REDIS_RESET_COND, 1, name)
+    await redis.execute("eval", redis_reset_cond, 1, _name)
 
 
 async def redis_condition_notify(redis, name):
@@ -159,9 +165,9 @@ async def redis_condition_notify(redis, name):
     #
     # if waiting[name] > 0
     #     name = 1
-    REDIS_NOTIFY_COND = """
+    redis_notify_cond = """
         if redis.call('hget', 'WAITING', KEYS[1]) ~= 0 then
             redis.call('lpush', KEYS[1], "1")
         end
         """
-    await redis.execute("eval", REDIS_NOTIFY_COND, 1, name)
+    await redis.execute("eval", redis_notify_cond, 1, name)
