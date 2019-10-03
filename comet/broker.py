@@ -193,6 +193,8 @@ async def register_dataset(request):
     async with Lock(redis, "datasets"):
         found = await redis.execute("hget", "datasets", hash)
         if found is not None:
+            # this string needs to be deserialized, contains a dataset
+            found = json.loads(found)
             # if we know it already, does it differ?
             if found != ds:
                 reply["result"] = (
