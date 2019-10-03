@@ -147,12 +147,11 @@ async def send_state(request):
             # if we know it already, does it differ?
             if found != state:
                 reply["result"] = (
-                    "error: a different state is know to "
-                    "the broker with this hash: {}".format(found)
+                    "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
+                    "the broker with the same hash:\n{}".format(hash, state, found)
                 )
                 logger.warning(
-                    "send-state: Failure receiving state: a different state with the "
-                    "same hash is: {}".format(found)
+                    "send-state: {}".format(reply["result"])
                 )
             else:
                 reply["result"] = "success"
@@ -194,15 +193,16 @@ async def register_dataset(request):
     async with Lock(redis, "datasets"):
         found = await redis.execute("hget", "datasets", hash)
         if found is not None:
+            # this string needs to be deserialized, contains a dataset
+            found = json.loads(found)
             # if we know it already, does it differ?
             if found != ds:
                 reply["result"] = (
-                    "error: a different dataset is know to"
-                    " the broker with this hash: {}".format(found)
+                    "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
+                    "the broker with the same hash:\n{}".format(hash, ds, found)
                 )
                 logger.warning(
-                    "register-dataset: Failure receiving dataset: a different dataset"
-                    " with the same hash is: {}".format(found)
+                    "send-state: {}".format(reply["result"])
                 )
             else:
                 reply["result"] = "success"
