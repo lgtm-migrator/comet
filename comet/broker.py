@@ -639,6 +639,9 @@ class Broker:
                         elif "ds" in entry.keys():
                             # States need to be registered parallelly, because some registrations
                             # make the broker wait for another state.
+                            if "types" not in entry["ds"]:
+                                logger.info(f"Invalid schema for dataset={entry["hash"}.")
+                                continue
                             threads.append(
                                 Thread(
                                     target=manager.register_dataset,
