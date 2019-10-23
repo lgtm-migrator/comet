@@ -1,8 +1,8 @@
 #!/usr/bin/env python3.7
 
-from comet import Archiver
 import argparse
 
+from comet.archiver import Archiver
 
 DEFAULT_DUMP_PATH = "./"
 DEFAULT_SCRAPE_INTERVAL = 360  # seconds

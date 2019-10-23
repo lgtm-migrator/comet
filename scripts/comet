@@ -2,8 +2,7 @@
 
 import argparse
 
-
-from comet import Broker
+from comet.broker import Broker
 
 DEFAULT_DUMP_PATH = "./"
 DEFAULT_FILE_LOCK_TIME = 3600  # seconds
