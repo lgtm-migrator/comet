@@ -7,8 +7,6 @@ import logging
 import requests
 import json
 
-LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
-
 # Endpoint names:
 REGISTER_STATE = "/register-state"
 REGISTER_DATASET = "/register-dataset"
@@ -18,6 +16,9 @@ REGISTER_EXTERNAL_STATE = "/register-external-state"
 TIMESTAMP_FORMAT = "%Y-%m-%d-%H:%M:%S.%f"
 
 TIMEOUT = 60
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class CometError(BaseException):
@@ -63,9 +64,6 @@ class Manager:
         self.states = dict()
         self.state_reg_time = dict()
         self.datasets = dict()
-        logging.basicConfig()
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
 
     def register_start(self, start_time, version):
         """Register a startup with the broker.
@@ -117,7 +115,7 @@ class Manager:
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         if name == "__main__":
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
-        self.logger.info("Registering startup for {}.".format(name))
+        logger.info("Registering startup for {}.".format(name))
 
         state = {
             "time": start_time.strftime(TIMESTAMP_FORMAT),
@@ -183,7 +181,7 @@ class Manager:
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         if name == "__main__":
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
-        self.logger.info("Registering config for {}.".format(name))
+        logger.info("Registering config for {}.".format(name))
 
         state = copy.deepcopy(config)
 
@@ -366,7 +364,7 @@ class Manager:
         return reply
 
     def _send_state(self, state_id, state, dump=True):
-        self.logger.debug("sending state {}".format(state_id))
+        logger.debug("sending state {}".format(state_id))
 
         request = {"hash": state_id, "state": state, "dump": dump}
         self._send(SEND_STATE, request)
