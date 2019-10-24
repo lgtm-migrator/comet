@@ -7,13 +7,15 @@ from comet.archiver import Archiver
 
 DEFAULT_DUMP_PATH = "./"
 DEFAULT_SCRAPE_INTERVAL = 360  # seconds
+DEFAULT_BROKER_HOST = "127.0.0.1"
+DEFAULT_BROKER_PORT = 12050
 LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
 
 logging.basicConfig(format=LOG_FORMAT)
 
 
 def start(args):
-    comet = Archiver(args.dump_path, args.scrape_interval)
+    comet = Archiver(args.dump_path, args.scrape_interval, args.broker_host, args.broker_port)
     comet.run()
 
 
@@ -29,6 +31,8 @@ parser.add_argument(
         default=DEFAULT_SCRAPE_INTERVAL,
         type=int,
         )
+parser.add_argument("--broker_host", help="set host running comet dataset broker (default: {})".format(DEFAULT_BROKER_HOST), default=DEFAULT_BROKER_HOST, type=str)
+parser.add_argument("--broker_port", help="set port of comet dataset broker (default: {})".format(DEFAULT_BROKER_PORT), default=DEFAULT_BROKER_PORT, type=int)
 parsed_args = parser.parse_args()
 
 start(parsed_args)
