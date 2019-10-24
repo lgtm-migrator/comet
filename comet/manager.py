@@ -14,6 +14,9 @@ REGISTER_STATE = "/register-state"
 REGISTER_DATASET = "/register-dataset"
 SEND_STATE = "/send-state"
 REGISTER_EXTERNAL_STATE = "/register-external-state"
+STATUS = "/status"
+STATES = "/states"
+DATASETS = "/datasets"
 
 TIMESTAMP_FORMAT = "%Y-%m-%d-%H:%M:%S.%f"
 
@@ -345,9 +348,10 @@ class Manager:
 
         return ds_id
 
-    def _send(self, endpoint, data):
+    def _send(self, endpoint, data, rtype="post"):
+        command = getattr(requests, rtype)
         try:
-            reply = requests.post(
+            reply = command(
                 self.broker + endpoint, data=json.dumps(data), timeout=TIMEOUT
             )
             reply.raise_for_status()
@@ -457,3 +461,41 @@ class Manager:
             The requested dataset. Returns `None` if requested dataset not found.
         """
         return self.datasets.get(dataset_id, None)
+
+    def broker_status(self):
+        """
+        Get dataset broker status.
+
+        Returns
+        -------
+        bool
+            True if broker is running.
+        """
+        response = self._send(STATUS, None, "get")
+        if "running" not in response:
+            return False
+        return response["running"]
+
+    def _get_states(self):
+        """
+        Get all state IDs known to dataset broker.
+
+        Returns
+        -------
+        List[int]
+            All state IDs known to dataset broker.
+        """
+        response = self._send(STATES, None, "get")
+        return response["states"]
+
+    def _get_datasets(self):
+        """
+        Get all dataset IDs known to dataset broker.
+
+        Returns
+        -------
+        List[int]
+            All dataset IDs known to dataset broker.
+        """
+        response = self._send(DATASETS, None, "get")
+        return response["datasets"]
