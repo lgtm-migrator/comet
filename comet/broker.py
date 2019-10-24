@@ -675,7 +675,7 @@ class Broker:
         global dumper
 
         print(
-            "Starting CoMeT dataset_broker({}) using port {}.".format(
+            "Starting CoMeT dataset_broker {} using port {}.".format(
                 __version__, self.config["port"]
             )
         )

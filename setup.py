@@ -7,17 +7,10 @@ CoMeT, a config and metadata tracker.
 from os import path
 from setuptools import setup, find_packages
 
+import versioneer
+
 
 here = path.abspath(path.dirname(__file__))
-
-# Get the version number without loading dependencies
-with open(path.join(here, "comet", "version.py")) as f:
-    for line in f:
-        if line.startswith("__version__"):
-            exec(line)
-            break
-    else:
-        raise RuntimeError("Cannot find version number")
 
 # Load the requirements from requirements.txt while removing the environment marks
 with open(path.join(here, "requirements.txt")) as f:
@@ -25,7 +18,8 @@ with open(path.join(here, "requirements.txt")) as f:
 
 setup(
     name="comet",
-    version=__version__,  # wtl.metrics.__version__,
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     description="Config and Metadata Tracker",
     url="https://github.com/chime-experiment/dataset-broker",
     author="Rick Nitsche",
