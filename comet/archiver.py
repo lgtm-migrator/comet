@@ -6,22 +6,20 @@ Moves comet broker dumps to a database
 
 import asyncio
 import datetime
+import logging
 import orjson as json
 from pathlib import Path
 import signal
-
-import logging
 
 import chimedb.core as chimedb
 import chimedb.dataset as db
 
 from . import Manager, CometError, __version__
 from .broker import DEFAULT_PORT
-from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
+from .manager import TIMESTAMP_FORMAT
 
 
-logging.basicConfig(format=LOG_FORMAT)
-logger = logging.getLogger("comet.archiver")
+logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
 

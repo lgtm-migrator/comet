@@ -23,6 +23,7 @@ WAIT_TIME = 40
 DEFAULT_PORT = 12050
 
 app = Sanic(__name__)
+logger.propagate = False
 
 
 def datetime_to_float(d):
@@ -687,8 +688,8 @@ class Broker:
             host="0.0.0.0",
             port=DEFAULT_PORT,
             return_asyncio_server=True,
-            access_log=True,
-            debug=self.debug,
+            access_log=self.debug,
+            debug=False,
         )
         loop = asyncio.get_event_loop()
         loop.slow_callback_duration = 10000

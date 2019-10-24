@@ -1,12 +1,15 @@
 #!/usr/bin/env python3.7
 
 import argparse
+import logging
 
-
-from comet import Broker
+from comet.broker import Broker
 
 DEFAULT_DUMP_PATH = "./"
 DEFAULT_FILE_LOCK_TIME = 3600  # seconds
+LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
+
+logging.basicConfig(format=LOG_FORMAT)
 
 
 def str2bool(v):

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3.7
 
-from comet import Archiver
 import argparse
+import logging
 
+from comet.archiver import Archiver
 
 DEFAULT_DUMP_PATH = "./"
 DEFAULT_SCRAPE_INTERVAL = 360  # seconds
+LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
+
+logging.basicConfig(format=LOG_FORMAT)
 
 
 def start(args):
