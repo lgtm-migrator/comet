@@ -64,7 +64,7 @@ class Archiver:
     def run(self):
         """Run comet archiver."""
         logger.info(
-            "Started CoMeT Archiver ({}), scraping path '{}' every {}.".format(
+            "Started CoMeT Archiver {}, scraping path '{}' every {}.".format(
                 __version__, self.dir, datetime.timedelta(seconds=self.interval)
             )
         )
