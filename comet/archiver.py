@@ -15,7 +15,6 @@ import chimedb.core as chimedb
 import chimedb.dataset as db
 
 from . import Manager, CometError, __version__
-from .broker import DEFAULT_PORT
 from .manager import TIMESTAMP_FORMAT
 
 
@@ -26,14 +25,14 @@ logger.setLevel("INFO")
 class Archiver:
     """Main class to run the comet archiver."""
 
-    def __init__(self, data_dump_path, scrape_interval):
+    def __init__(self, data_dump_path, scrape_interval, broker_host, broker_port):
 
         startup_time = datetime.datetime.utcnow()
         config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval}
         self.dir = data_dump_path
         self.interval = scrape_interval
 
-        manager = Manager("localhost", DEFAULT_PORT)
+        manager = Manager(broker_host, broker_port)
         try:
             manager.register_start(startup_time, __version__)
             manager.register_config(config)
