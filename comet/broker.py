@@ -97,24 +97,53 @@ async def status(request):
     """
     Get status of CoMeT (dataset-broker).
 
-    Shows all datasets and states registered by CoMeT (the broker).
+    Poke comet to see if it's alive. Is either dead or returns {"running": True}.
 
     curl -X GET http://localhost:12050/status
     """
-    global states
-    global datasets
-
     logger.debug("status: Received status request")
+    return response.json({"running": True, "result": "success"})
 
-    reply = dict()
+
+@app.route("/states", methods=["GET"])
+async def get_states(request):
+    """
+    Get states from CoMeT (dataset-broker).
+
+    Shows all states registered by CoMeT (the broker).
+
+    curl -X GET http://localhost:12050/states
+    """
+    global states
+
+    logger.debug("status: Received states request")
+
+    reply = {"result": "success"}
     async with lock_states:
         reply["states"] = states.keys()
+
+    logger.debug("states: {}".format(states.keys()))
+    return response.json(reply)
+
+
+@app.route("/datasets", methods=["GET"])
+async def get_datasets(request):
+    """
+    Get datasets from CoMeT (dataset-broker).
+
+    Shows all datasets registered by CoMeT (the broker).
+
+    curl -X GET http://localhost:12050/datasets
+    """
+    global datasets
+
+    logger.debug("status: Received datasets request")
+
+    reply = {"result": "success"}
     async with lock_datasets:
         reply["datasets"] = datasets.keys()
 
-    logger.debug("states: {}".format(states.keys()))
     logger.debug("datasets: {}".format(datasets.keys()))
-
     return response.json(reply)
 
 

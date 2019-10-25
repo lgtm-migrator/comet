@@ -151,6 +151,7 @@ def test_recover(manager, broker, simple_ds):
 
     # Give archiver a moment and make broker release dump file by registering another state.
     time.sleep(2)
+    assert manager.broker_status()
     manager.register_config({"blubb": 1})
     time.sleep(0.1)
 
@@ -189,3 +190,8 @@ def test_archiver(archiver, simple_ds, manager):
     assert state.data == {"foo": "bar", "type": "test"}
 
     chimedb.close()
+
+
+def test_status(simple_ds, manager):
+    assert simple_ds[0] in manager._get_datasets()
+    assert simple_ds[1] in manager._get_states()
