@@ -351,7 +351,7 @@ async def find_root(hash, ds):
         if not found:
             logger.error("find_root: dataset {} not found.".format(hash))
             return None
-        ds = await redis.execute("hget", "datasets", root)
+        ds = json.loads(await redis.execute("hget", "datasets", root))
     return root
 
 
