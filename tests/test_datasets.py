@@ -10,13 +10,13 @@ from subprocess import Popen
 
 from datetime import datetime, timedelta
 from comet import Manager
-from comet.broker import DEFAULT_PORT
 from chimedb.dataset import get_state, get_dataset, get_types
 import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
 CHIMEDBRC = os.path.join(os.getcwd() + "/.chimedb_test_rc")
 CHIMEDBRC_MESSAGE = "Could not find {}.".format(CHIMEDBRC)
+PORT = "8000"
 
 # Some dummy states for testing:
 CONFIG = {"a": 1, "b": "fubar"}
@@ -38,7 +38,7 @@ dir = tempfile.mkdtemp()
 
 @pytest.fixture(scope="session", autouse=True)
 def manager():
-    manager = Manager("localhost", DEFAULT_PORT)
+    manager = Manager("localhost", PORT)
 
     # Wait for broker to start up.
     time.sleep(0.1)
@@ -57,7 +57,7 @@ def broker():
     # Make sure we don't write to the actual chime database
     os.environ["CHIMEDB_TEST_ENABLE"] = "Yes, please."
 
-    broker = Popen(["comet", "--debug", "1", "-d", dir, "-t", "2"])
+    broker = Popen(["comet", "--debug", "1", "-d", dir, "-t", "2", "-p", PORT])
     time.sleep(3)
     yield dir
     pid = broker.pid
@@ -71,7 +71,7 @@ def broker():
 
 @pytest.fixture(scope="function", autouse=True)
 def archiver():
-    archiver = Popen(["comet_archiver", "-d", dir, "-i", "1"])
+    archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
     yield dir
     pid = archiver.pid
     os.kill(pid, signal.SIGINT)
@@ -151,6 +151,7 @@ def test_recover(manager, broker, simple_ds):
 
     # Give archiver a moment and make broker release dump file by registering another state.
     time.sleep(2)
+    assert manager.broker_status()
     manager.register_config({"blubb": 1})
     time.sleep(0.1)
 
@@ -189,3 +190,8 @@ def test_archiver(archiver, simple_ds, manager):
     assert state.data == {"foo": "bar", "type": "test"}
 
     chimedb.close()
+
+
+def test_status(simple_ds, manager):
+    assert simple_ds[0] in manager._get_datasets()
+    assert simple_ds[1] in manager._get_states()

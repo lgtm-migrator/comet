@@ -7,6 +7,9 @@ import os
 
 from bisect import bisect_left
 from caput import time
+from copy import copy
+from signal import signal, SIGINT
+from socket import socket
 from threading import Thread
 from time import sleep
 
@@ -42,7 +45,7 @@ async def status(request):
     """
     Get status of CoMeT (dataset-broker).
 
-    Shows all datasets and states registered by CoMeT (the broker).
+    Poke comet to see if it's alive. Is either dead or returns {"running": True}.
 
     curl -X GET http://localhost:12050/status
     """
@@ -59,6 +62,43 @@ async def status(request):
     logger.debug("states: {}".format(reply["states"]))
     logger.debug("datasets: {}".format(reply["datasets"]))
 
+    return response.json({"running": True, "result": "success"})
+
+
+@app.route("/states", methods=["GET"])
+async def get_states(request):
+    """
+    Get states from CoMeT (dataset-broker).
+
+    Shows all states registered by CoMeT (the broker).
+
+    curl -X GET http://localhost:12050/states
+    """
+
+    logger.debug("status: Received states request")
+
+    states = await redis.execute("hkeys", "states")
+    reply = {"result": "success", "states": states}
+
+    logger.debug("states: {}".format(states))
+    return response.json(reply)
+
+
+@app.route("/datasets", methods=["GET"])
+async def get_datasets(request):
+    """
+    Get datasets from CoMeT (dataset-broker).
+
+    Shows all datasets registered by CoMeT (the broker).
+
+    curl -X GET http://localhost:12050/datasets
+    """
+    logger.debug("status: Received datasets request")
+
+    datasets = await redis.execute("hkeys", "datasets")
+    reply = {"result": "success", "datasets": datasets}
+
+    logger.debug("datasets: {}".format(datasets))
     return response.json(reply)
 
 
@@ -536,7 +576,7 @@ async def tree(root):
 class Broker:
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, data_dump_path, file_lock_time, debug, recover, workers):
+    def __init__(self, data_dump_path, file_lock_time, debug, recover, workers, port):
         global dumper
 
         self.config = {
@@ -544,20 +584,22 @@ class Broker:
             "file_lock_time": file_lock_time,
             "debug": debug,
             "recover": recover,
+            "port": port,
         }
 
         dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
         self.startup_time = datetime.datetime.utcnow()
         self.n_workers = workers
+        self.port = None
 
-    @staticmethod
-    def _wait_and_register(startup_time, config):
+    def _wait_and_register(self):
         global dumper
-        sleep(1)
-        manager = Manager("localhost", DEFAULT_PORT)
+        while not self.port:
+            sleep(1)
+        manager = Manager("localhost", self.port)
         try:
-            manager.register_start(startup_time, __version__)
+            manager.register_start(self.startup_time, __version__)
         except CometError as exc:
             logger.error(
                 "Comet failed registering its own startup and initial config: {}".format(
@@ -567,10 +609,10 @@ class Broker:
             del dumper
             exit(1)
 
-        if config["recover"]:
+        if self.config["recover"]:
             logger.info("Reading dump files to recover state.")
             # Find the dump files
-            dump_files = os.listdir(config["data_dump_path"])
+            dump_files = os.listdir(self.config["data_dump_path"])
             dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
             dump_times = [f[:-10] for f in dump_files]
             dump_times = [
@@ -583,7 +625,7 @@ class Broker:
             for dfile in dump_files:
                 logger.info("Reading dump file: {}".format(dfile))
                 with open(
-                    os.path.join(config["data_dump_path"], dfile), "r"
+                    os.path.join(self.config["data_dump_path"], dfile), "r"
                 ) as json_file:
                     line_num = 0
                     for line in json_file:
@@ -633,15 +675,15 @@ class Broker:
             for t in threads:
                 t.join()
 
-        manager.register_config(config)
+        manager.register_config(self.config)
 
     def run_comet(self):
         """Run comet dataset broker."""
         global dumper
 
         print(
-            "Starting CoMeT dataset_broker({}) using port {}.".format(
-                __version__, DEFAULT_PORT
+            "Starting CoMeT dataset_broker {} using port {}.".format(
+                __version__, self.config["port"]
             )
         )
 
@@ -649,18 +691,29 @@ class Broker:
         asyncio.run(create_locks())
 
         # Register config with broker
-        t = Thread(
-            target=self._wait_and_register, args=(self.startup_time, self.config)
-        )
+        t = Thread(target=self._wait_and_register)
         t.start()
+
+        # Check if port is set to 0 for random open port
+        port = self.config["port"]
+        server_kwargs = {}
+        if port == 0:
+            sock = socket()
+            sock.bind(("0.0.0.0", 0))
+            server_kwargs["sock"] = sock
+            _, port = sock.getsockname()
+            logger.info("Selected random port: {}".format(port))
+        else:
+            server_kwargs["host"] = "0.0.0.0"
+            server_kwargs["port"] = port
+        self.port = port
 
         app.run(
             workers=self.n_workers,
-            host="0.0.0.0",
-            port=DEFAULT_PORT,
             return_asyncio_server=True,
-            access_log=True,
-            debug=self.debug,
+            access_log=self.debug,
+            debug=False,
+            **server_kwargs
         )
 
 

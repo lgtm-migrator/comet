@@ -7,17 +7,21 @@ import logging
 import requests
 import json
 
-LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
-
 # Endpoint names:
 REGISTER_STATE = "/register-state"
 REGISTER_DATASET = "/register-dataset"
 SEND_STATE = "/send-state"
 REGISTER_EXTERNAL_STATE = "/register-external-state"
+STATUS = "/status"
+STATES = "/states"
+DATASETS = "/datasets"
 
 TIMESTAMP_FORMAT = "%Y-%m-%d-%H:%M:%S.%f"
 
 TIMEOUT = 60
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class CometError(BaseException):
@@ -63,9 +67,6 @@ class Manager:
         self.states = dict()
         self.state_reg_time = dict()
         self.datasets = dict()
-        logging.basicConfig()
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.DEBUG)
 
     def register_start(self, start_time, version):
         """Register a startup with the broker.
@@ -117,7 +118,7 @@ class Manager:
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         if name == "__main__":
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
-        self.logger.info("Registering startup for {}.".format(name))
+        logger.info("Registering startup for {}.".format(name))
 
         state = {
             "time": start_time.strftime(TIMESTAMP_FORMAT),
@@ -183,7 +184,7 @@ class Manager:
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
         if name == "__main__":
             name = inspect.getmodule(inspect.stack()[1][0]).__file__
-        self.logger.info("Registering config for {}.".format(name))
+        logger.info("Registering config for {}.".format(name))
 
         state = copy.deepcopy(config)
 
@@ -345,9 +346,10 @@ class Manager:
 
         return ds_id
 
-    def _send(self, endpoint, data):
+    def _send(self, endpoint, data, rtype="post"):
+        command = getattr(requests, rtype)
         try:
-            reply = requests.post(
+            reply = command(
                 self.broker + endpoint, data=json.dumps(data), timeout=TIMEOUT
             )
             reply.raise_for_status()
@@ -366,7 +368,7 @@ class Manager:
         return reply
 
     def _send_state(self, state_id, state, dump=True):
-        self.logger.debug("sending state {}".format(state_id))
+        logger.debug("sending state {}".format(state_id))
 
         request = {"hash": state_id, "state": state, "dump": dump}
         self._send(SEND_STATE, request)
@@ -457,3 +459,41 @@ class Manager:
             The requested dataset. Returns `None` if requested dataset not found.
         """
         return self.datasets.get(dataset_id, None)
+
+    def broker_status(self):
+        """
+        Get dataset broker status.
+
+        Returns
+        -------
+        bool
+            True if broker is running.
+        """
+        response = self._send(STATUS, None, "get")
+        if "running" not in response:
+            return False
+        return response["running"]
+
+    def _get_states(self):
+        """
+        Get all state IDs known to dataset broker.
+
+        Returns
+        -------
+        List[int]
+            All state IDs known to dataset broker.
+        """
+        response = self._send(STATES, None, "get")
+        return response["states"]
+
+    def _get_datasets(self):
+        """
+        Get all dataset IDs known to dataset broker.
+
+        Returns
+        -------
+        List[int]
+            All dataset IDs known to dataset broker.
+        """
+        response = self._send(DATASETS, None, "get")
+        return response["datasets"]

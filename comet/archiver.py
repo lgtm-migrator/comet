@@ -6,36 +6,33 @@ Moves comet broker dumps to a database
 
 import asyncio
 import datetime
+import logging
 import orjson as json
 from pathlib import Path
 import signal
-
-import logging
 
 import chimedb.core as chimedb
 import chimedb.dataset as db
 
 from . import Manager, CometError, __version__
-from .broker import DEFAULT_PORT
-from .manager import TIMESTAMP_FORMAT, LOG_FORMAT
+from .manager import TIMESTAMP_FORMAT
 
 
-logging.basicConfig(format=LOG_FORMAT)
-logger = logging.getLogger("comet.archiver")
+logger = logging.getLogger(__name__)
 logger.setLevel("INFO")
 
 
 class Archiver:
     """Main class to run the comet archiver."""
 
-    def __init__(self, data_dump_path, scrape_interval):
+    def __init__(self, data_dump_path, scrape_interval, broker_host, broker_port):
 
         startup_time = datetime.datetime.utcnow()
         config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval}
         self.dir = data_dump_path
         self.interval = scrape_interval
 
-        manager = Manager("localhost", DEFAULT_PORT)
+        manager = Manager(broker_host, broker_port)
         try:
             manager.register_start(startup_time, __version__)
             manager.register_config(config)
@@ -64,7 +61,7 @@ class Archiver:
     def run(self):
         """Run comet archiver."""
         logger.info(
-            "Started CoMeT Archiver ({}), scraping path '{}' every {}.".format(
+            "Started CoMeT Archiver {}, scraping path '{}' every {}.".format(
                 __version__, self.dir, datetime.timedelta(seconds=self.interval)
             )
         )
