@@ -4,8 +4,10 @@ import copy
 import datetime
 import inspect
 import logging
-import requests
 import json
+
+import requests
+import mmh3
 
 # Endpoint names:
 REGISTER_STATE = "/register-state"
@@ -383,7 +385,7 @@ class Manager:
 
     @staticmethod
     def _make_hash(data):
-        return hash(json.dumps(data, sort_keys=True))
+        return mmh3.hash_bytes(json.dumps(data, sort_keys=True)).hex()
 
     def get_state(self, type=None, dataset_id=None):
         """
