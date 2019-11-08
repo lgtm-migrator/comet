@@ -50,18 +50,6 @@ async def status(request):
     curl -X GET http://localhost:12050/status
     """
     logger.debug("status: Received status request")
-
-    reply = dict()
-
-    # Get all states and datasets from redis concurrently
-    get_states_task = asyncio.ensure_future(redis.execute("hkeys", "states"))
-    reply["datasets"] = await redis.execute("hkeys", "datasets")
-    (get_states_task,), _ = await asyncio.wait({get_states_task})
-    reply["states"] = get_states_task.result()
-
-    logger.debug("states: {}".format(reply["states"]))
-    logger.debug("datasets: {}".format(reply["datasets"]))
-
     return response.json({"running": True, "result": "success"})
 
 
@@ -190,9 +178,7 @@ async def send_state(request):
                     "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
                 )
-                logger.warning(
-                    "send-state: {}".format(reply["result"])
-                )
+                logger.warning("send-state: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
         else:
@@ -241,9 +227,7 @@ async def register_dataset(request):
                     "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
                     "the broker with the same hash:\n{}".format(hash, ds, found)
                 )
-                logger.warning(
-                    "send-state: {}".format(reply["result"])
-                )
+                logger.warning("send-state: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
         elif dataset_valid:
