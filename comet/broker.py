@@ -125,6 +125,7 @@ async def register_state(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
+    print(request.json)
     logger.debug(
         "register-state: Received register state request, hash: {}".format(hash)
     )
@@ -696,7 +697,7 @@ class Broker:
             workers=self.n_workers,
             return_asyncio_server=True,
             access_log=self.debug,
-            debug=False,
+            debug=self.debug,
             **server_kwargs
         )
 
