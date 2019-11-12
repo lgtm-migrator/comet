@@ -286,7 +286,7 @@ class Manager:
         return state_id
 
     def register_dataset(
-        self, state, base_ds, types, root=False, dump=True, timestamp=None, ds_id=None
+        self, state, base_ds, type, root=False, dump=True, timestamp=None, ds_id=None
     ):
         """Register a dataset with the broker.
 
@@ -296,8 +296,8 @@ class Manager:
             Hash / state ID of the state attached to this dataset.
         base_ds : int
             Hash / dataset ID of the base dataset or `None` if this is a root dataset.
-        types : list of str
-            State type name(s) of this state and its inner state(s).
+        type : str
+            State type name of this state.
         root : bool
             `True` if this is a root dataset (default `False`).
         dump : bool
@@ -332,7 +332,7 @@ class Manager:
                 "(use 'register_start()')."
             )
 
-        ds = {"is_root": root, "state": state, "types": types}
+        ds = {"is_root": root, "state": state, "type": type}
         if base_ds is not None:
             ds["base_dset"] = base_ds
 

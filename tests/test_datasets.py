@@ -81,8 +81,7 @@ def archiver():
 @pytest.fixture(scope="session", autouse=False)
 def simple_ds(manager):
     state_id = manager.register_state({"foo": "bar"}, "test")
-    dset_id = manager.register_dataset(state_id, None, ["test"], True)
-
+    dset_id = manager.register_dataset(state_id, None, "test", True)
     yield (dset_id, state_id)
 
 
@@ -160,7 +159,7 @@ def test_recover(manager, broker, simple_ds):
     assert state == {"foo": "bar", "type": "test"}
     assert ds["is_root"] is True
     # TODO: fix hash function # assert ds["state"] == manager._make_hash(state)
-    assert ds["types"] == ["test"]
+    assert ds["type"] == "test"
 
 
 def test_archiver(archiver, simple_ds, manager):
@@ -178,15 +177,13 @@ def test_archiver(archiver, simple_ds, manager):
     chimedb.connect()
 
     ds = get_dataset(dset_id)
+
     assert ds.state.id == state_id
     assert ds.root is True
 
-    types = get_types(dset_id)
-    assert types == ["test"]
-
     state = get_state(state_id)
     assert state.id == state_id
-    assert state.type.name == types[0]
+    assert state.type.name == "test"
     assert state.data == {"foo": "bar", "type": "test"}
 
     chimedb.close()
