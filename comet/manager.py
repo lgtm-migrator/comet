@@ -322,9 +322,9 @@ class Manager:
             If the broker can't be reached.
 
         """
-        if not isinstance(state, int):
+        if not isinstance(state, str):
             raise ManagerError(
-                "state needs to be a hash (int) (is `{}`).".format(type(state).__name__)
+                "state needs to be a hash (str) (is `{}`).".format(type(state).__name__)
             )
         if not self.start_state:
             raise ManagerError(
