@@ -10,7 +10,7 @@ from subprocess import Popen
 
 from datetime import datetime, timedelta
 from comet import Manager
-from chimedb.dataset import get_state, get_dataset, get_types
+from chimedb.dataset import get_state, get_dataset
 import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
