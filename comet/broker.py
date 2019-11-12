@@ -697,7 +697,7 @@ class Broker:
             workers=self.n_workers,
             return_asyncio_server=True,
             access_log=self.debug,
-            debug=self.debug,
+            debug=False,
             **server_kwargs
         )
 
