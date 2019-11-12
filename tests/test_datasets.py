@@ -40,9 +40,6 @@ dir = tempfile.mkdtemp()
 def manager():
     manager = Manager("localhost", PORT)
 
-    # Wait for broker to start up.
-    time.sleep(0.1)
-
     manager.register_start(now, version)
     manager.register_config(CONFIG)
     return manager
@@ -165,6 +162,8 @@ def test_recover(manager, broker, simple_ds):
 def test_archiver(archiver, simple_ds, manager):
     dset_id = simple_ds[0]
     state_id = simple_ds[1]
+
+    time.sleep(1)
 
     # Tell chimedb where the database connection config is
     assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
