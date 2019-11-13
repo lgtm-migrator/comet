@@ -228,7 +228,8 @@ class Condition:
 
         This will not do anything to tasks waiting on the variable. These
         should be cleaned up before calling this. It will also not close the
-        underlying `Lock`.
+        underlying `Lock`, but does need to acquire it to close the condition
+        variable.
         """
         async with self.lock as r:
             await r.execute("del", "WAITING")
