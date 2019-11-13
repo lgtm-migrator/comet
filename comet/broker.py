@@ -580,6 +580,7 @@ class Broker:
         t.join()
         logger.info("Comet stopped.")
 
+
 async def create_locks():
     """Create all redis locks."""
     global lock_states, lock_datasets, lock_external_states, cond_states, cond_datasets
@@ -589,6 +590,7 @@ async def create_locks():
     lock_external_states = await Lock.create(redis, "external_datasets")
     cond_states = await Condition.create(lock_states, "states")
     cond_datasets = await Condition.create(lock_datasets, "datasets")
+
 
 async def close_locks():
     """Create all redis locks."""

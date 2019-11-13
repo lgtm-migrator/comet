@@ -64,9 +64,12 @@ class Lock:
         """
         self = cls(redis, name)
 
-        await redis.execute("eval",
-                            "redis.call('del', KEYS[1]); redis.call('lpush', KEYS[1], '1')",
-                            1, self.lockname)
+        await redis.execute(
+            "eval",
+            "redis.call('del', KEYS[1]); redis.call('lpush', KEYS[1], '1')",
+            1,
+            self.lockname,
+        )
 
         return self
 
