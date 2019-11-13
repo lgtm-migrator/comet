@@ -19,7 +19,6 @@ from sanic.log import logger
 from concurrent.futures import CancelledError
 
 from . import __version__
-from .dumper import Dumper
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
 from .redis_async_locks import Lock, Condition
 
@@ -555,99 +554,13 @@ class Broker:
             "port": port,
         }
 
-        dumper = Dumper(data_dump_path, file_lock_time)
         self.debug = debug
         self.startup_time = datetime.datetime.utcnow()
         self.n_workers = workers
         self.port = None
 
-    def _wait_and_register(self):
-        global dumper
-        while not self.port:
-            sleep(1)
-        manager = Manager("localhost", self.port)
-        try:
-            manager.register_start(self.startup_time, __version__)
-        except CometError as exc:
-            logger.error(
-                "Comet failed registering its own startup and initial config: {}".format(
-                    exc
-                )
-            )
-            del dumper
-            exit(1)
-
-        if self.config["recover"]:
-            logger.info("Reading dump files to recover state.")
-            # Find the dump files
-            dump_files = os.listdir(self.config["data_dump_path"])
-            dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
-            dump_times = [f[:-10] for f in dump_files]
-            dump_times = [
-                datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times
-            ]
-            if dump_files:
-                dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
-
-            threads = list()
-            for dfile in dump_files:
-                logger.info("Reading dump file: {}".format(dfile))
-                with open(
-                    os.path.join(self.config["data_dump_path"], dfile), "r"
-                ) as json_file:
-                    line_num = 0
-                    for line in json_file:
-                        line_num += 1
-                        entry = json.loads(line)
-                        if "state" in entry.keys():
-                            # Don't register the start state we just sent.
-                            state = entry["state"]
-                            if not state == manager.states[manager.start_state]:
-                                if state:
-                                    state_type = state["type"]
-                                else:
-                                    state_type = None
-                                manager.register_state(
-                                    entry["state"],
-                                    state_type,
-                                    False,
-                                    entry["time"],
-                                    entry["hash"],
-                                )
-                        elif "ds" in entry.keys():
-                            # States need to be registered parallelly, because some registrations
-                            # make the broker wait for another state.
-                            threads.append(
-                                Thread(
-                                    target=manager.register_dataset,
-                                    args=(
-                                        entry["ds"]["state"],
-                                        entry["ds"].get("base_dset", None),
-                                        entry["ds"]["types"],
-                                        entry["ds"]["is_root"],
-                                        False,
-                                        entry["time"],
-                                        entry["hash"],
-                                    ),
-                                )
-                            )
-                            threads[-1].start()
-                        else:
-                            logger.warn(
-                                "Dump file entry {}:{} has neither state nor dataset. "
-                                "Skipping...\nThis is the entry: {}".format(
-                                    dfile, line_num, entry
-                                )
-                            )
-
-            for t in threads:
-                t.join()
-
-        manager.register_config(self.config)
-
     def run_comet(self):
         """Run comet dataset broker."""
-        global dumper
 
         print(
             "Starting CoMeT dataset_broker {} using port {}.".format(
@@ -660,10 +573,6 @@ class Broker:
 
         # # Create all redis locks before doing anything
         # asyncio.run(create_locks())
-
-        # # Register config with broker
-        # t = Thread(target=self._wait_and_register)
-        # t.start()
 
         # Check if port is set to 0 for random open port
         port = self.config["port"]
@@ -690,14 +599,22 @@ class Broker:
 
 async def create_locks():
     """Create all redis locks."""
-    global lock_states, lock_datasets, lock_external_states, lock_dump, cond_states, cond_datasets
+    global lock_states, lock_datasets, lock_external_states, cond_states, cond_datasets
 
     lock_states = await Lock.create(redis, "states")
     lock_datasets = await Lock.create(redis, "datasets")
-    lock_external_datasets = await Lock.create(redis, "external_datasets")
-    lock_dump = await Lock.create(redis, "dump")
+    lock_external_states = await Lock.create(redis, "external_datasets")
     cond_states = await Condition.create(lock_states, "states")
     cond_datasets = await Condition.create(lock_datasets, "datasets")
+
+async def close_locks():
+    """Create all redis locks."""
+    # Free the condition variables first as this requires the lock to do so.
+    await cond_states.close()
+    await cond_datasets.close()
+    await lock_states.close()
+    await lock_datasets.close()
+    await lock_external_states.close()
 
 
 # Create the Redis connection pool, use sanic to start it so that it
@@ -712,6 +629,7 @@ async def _init_redis_async(_, loop):
 
 
 async def _close_redis_async(_, loop):
+    await close_locks()
     redis.close()
     await redis.wait_closed()
 
