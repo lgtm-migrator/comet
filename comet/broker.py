@@ -290,9 +290,7 @@ async def save_dataset(r, hash, ds, root):
     )
 
     # Insert the dataset in the hashmap
-    task3 = asyncio.ensure_future(
-        r.execute("hset", "datasets", hash, json.dumps(ds))
-    )
+    task3 = asyncio.ensure_future(r.execute("hset", "datasets", hash, json.dumps(ds)))
 
     # Wait for all concurrent tasks
     await asyncio.wait({task1, task2, task3})
@@ -323,9 +321,7 @@ async def gather_update(ts, roots):
             for n, k in zip(tree, keys):
                 if k < ts:
                     break
-                tasks.append(
-                    asyncio.ensure_future(r.execute("hget", "datasets", n))
-                )
+                tasks.append(asyncio.ensure_future(r.execute("hget", "datasets", n)))
 
         # Wait for all concurrent tasks
         tasks, _ = await asyncio.wait(tasks)
@@ -413,9 +409,7 @@ async def wait_for_dset(id):
             # did someone send it to us by now?
             async with cond_datasets as r:
                 try:
-                    await asyncio.wait_for(
-                        cond_datasets.wait(), WAIT_TIME
-                    )
+                    await asyncio.wait_for(cond_datasets.wait(), WAIT_TIME)
                 except (TimeoutError, CancelledError):
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
@@ -450,9 +444,7 @@ async def wait_for_state(id):
             # did someone send it to us by now?
             async with cond_states as r:
                 try:
-                    await asyncio.wait_for(
-                        cond_states.wait(), WAIT_TIME
-                    )
+                    await asyncio.wait_for(cond_states.wait(), WAIT_TIME)
                 except (TimeoutError, CancelledError):
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
@@ -538,9 +530,7 @@ async def update_datasets(request):
 async def tree(root):
     """Return a list of all nodes in the given tree."""
     async with lock_datasets as r:
-        datasets_of_root = json.loads(
-            await r.execute("hget", "datasets_of_root", root)
-        )
+        datasets_of_root = json.loads(await r.execute("hget", "datasets_of_root", root))
         tasks = asyncio.ensure_future(
             r.execute("hget", "datasets", n) for n in datasets_of_root
         )
@@ -715,7 +705,9 @@ async def create_locks():
 # At the same time create the locks that we will need
 async def _init_redis_async(_, loop):
     global redis
-    redis = await aioredis.create_pool(("127.0.0.1", 6379), encoding="utf-8", minsize=20, maxsize=200)
+    redis = await aioredis.create_pool(
+        ("127.0.0.1", 6379), encoding="utf-8", minsize=20, maxsize=200
+    )
     await create_locks()
 
 

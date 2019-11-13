@@ -70,7 +70,7 @@ class Lock:
     # TODO: can we do this synchronously?
     async def locked(self):
         """Is the lock already acquired?"""
-        return int(await self.redis.execute('llen', self.lockname)) == 0
+        return int(await self.redis.execute("llen", self.lockname)) == 0
 
     async def acquire(self, r=None):
         """Acquire the lock.
@@ -127,7 +127,10 @@ class Lock:
 
         # Check we have an active connection
         logger.debug(f"Releasing lock {self.name}: resetting internal connection")
-        if not isinstance(self._redis_conn, aioredis.connection.RedisConnection) or self._redis_conn.closed:
+        if (
+            not isinstance(self._redis_conn, aioredis.connection.RedisConnection)
+            or self._redis_conn.closed
+        ):
             raise LockError(
                 f"Failure releasing lock: {self.name} (no active redis connection)."
             )
@@ -211,7 +214,9 @@ class Condition:
         return self.lock.redis
 
     async def notify(self, n=1):
-        raise NotImplementedError("only notify_all is supported for a redis condition variable.")
+        raise NotImplementedError(
+            "only notify_all is supported for a redis condition variable."
+        )
 
     async def notify_all(self):
         """Notify all processes waiting for the condition variable.
@@ -227,18 +232,21 @@ if redis.call('hget', 'WAITING', KEYS[1]) ~= 0 then
     redis.call('lpush', KEYS[1], "1")
 end
         """
-        if not self.locked():
-            raise LockError(f"Failure notifying condition {self.name}: lock not acquired.")
+        if not await self.locked():
+            raise LockError(
+                f"Failure notifying condition {self.name}: lock not acquired."
+            )
 
         # Use the internal redis connection
         await self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
 
-
     async def wait(self):
         """Wait for the condition variable to signal."""
 
-        if not self.locked():
-            raise LockError(f"Failure waiting condition {self.name}: lock not acquired at start.")
+        if not await self.locked():
+            raise LockError(
+                f"Failure waiting condition {self.name}: lock not acquired at start."
+            )
 
         # Save a reference to the connection so that we can preserve it through the release/acquire cycle
         r = self.lock._redis_conn

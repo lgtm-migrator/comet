@@ -3,9 +3,11 @@ import aioredis
 import pytest
 
 import logging
+
 logging.basicConfig(level=logging.DEBUG)
 
 from comet.redis_async_locks import Lock
+
 
 @pytest.mark.asyncio
 async def test_lock():
@@ -113,7 +115,7 @@ async def test_large():
     # Perform a non-atomic increment of a variable in redis
     # This is obviously stupid except for testing the locking
     async def task():
-        #with await redis as r:  ## Use this to see how badly the test fails
+        # with await redis as r:  ## Use this to see how badly the test fails
         async with lock as r:
             val = await r.execute("get", key)
             val = int(val) if val is not None else 0

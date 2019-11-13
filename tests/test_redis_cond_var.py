@@ -6,12 +6,16 @@ from comet.redis_async_locks import Lock, Condition
 
 
 import logging
+
 logging.basicConfig(level=logging.DEBUG)
+
 
 @pytest.mark.asyncio
 async def test_cond_variable():
     """Test that a single condition variable works as expected."""
-    redis = await aioredis.create_pool(("127.0.0.1", 6379), encoding="utf-8", maxsize=30)
+    redis = await aioredis.create_pool(
+        ("127.0.0.1", 6379), encoding="utf-8", maxsize=30
+    )
 
     lock = await Lock.create(redis, "testlock")
     cond = await Condition.create(lock, "testcond")
@@ -51,10 +55,13 @@ async def test_cond_variable():
     redis.close()
     await redis.wait_closed()
 
+
 @pytest.mark.asyncio
 async def test_cond_context_manager():
     """Test that a single condition variable works as expected."""
-    redis = await aioredis.create_pool(("127.0.0.1", 6379), encoding="utf-8", maxsize=30)
+    redis = await aioredis.create_pool(
+        ("127.0.0.1", 6379), encoding="utf-8", maxsize=30
+    )
 
     lock = await Lock.create(redis, "testlock")
     cond = await Condition.create(lock, "testcond")
@@ -92,12 +99,15 @@ async def test_cond_context_manager():
     redis.close()
     await redis.wait_closed()
 
+
 @pytest.mark.asyncio
 async def test_cond_two_variables():
     """Similar to the above test, but check that two condition variables can
     work at the same time."""
 
-    redis = await aioredis.create_pool(("127.0.0.1", 6379), encoding="utf-8", maxsize=45)
+    redis = await aioredis.create_pool(
+        ("127.0.0.1", 6379), encoding="utf-8", maxsize=45
+    )
 
     lock = await Lock.create(redis, "testlock")
     cond_a = await Condition.create(lock, "testcond_a")
