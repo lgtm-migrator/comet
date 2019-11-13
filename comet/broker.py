@@ -4,11 +4,10 @@ import asyncio
 import datetime
 import json
 import os
+import redis as redis_sync
 
 from bisect import bisect_left
 from caput import time
-from copy import copy
-from signal import signal, SIGINT
 from socket import socket
 from threading import Thread
 from time import sleep
@@ -33,7 +32,7 @@ from .redis_async_locks import (
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
-redis_instance = [("localhost", 6379)]
+REDIS_SERVER = ("localhost", 6379)
 
 app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 600
@@ -640,7 +639,7 @@ class Broker:
                                     args=(
                                         entry["ds"]["state"],
                                         entry["ds"].get("base_dset", None),
-                                        entry["ds"]["types"],
+                                        entry["ds"]["type"],
                                         entry["ds"]["is_root"],
                                         False,
                                         entry["time"],
@@ -662,6 +661,22 @@ class Broker:
 
         manager.register_config(self.config)
 
+    def _flush_redis(self):
+        """
+        Flush from redis what we don't want to keep on start.
+
+        At the moment this only deletes members of the set "requested_states".
+        """
+        r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
+        hash = r.spop("requested_states")
+        while hash:
+            logger.warning(
+                "Found requested state in redis on startup: {}\nFlushing...".format(
+                    hash.decode()
+                )
+            )
+            hash = r.spop("requested_states")
+
     def run_comet(self):
         """Run comet dataset broker."""
         global dumper
@@ -674,6 +689,8 @@ class Broker:
 
         # Create all redis locks before doing anything
         asyncio.run(create_locks())
+
+        self._flush_redis()
 
         # Register config with broker
         t = Thread(target=self._wait_and_register)
@@ -719,7 +736,7 @@ async def create_locks():
 # ends up in the same event loop
 async def _init_redis_async(_, loop):
     global redis
-    redis = await aioredis.create_redis_pool(("127.0.0.1", 6379), encoding="utf-8")
+    redis = await aioredis.create_redis_pool(REDIS_SERVER, encoding="utf-8")
 
 
 async def _close_redis_async(_, loop):
