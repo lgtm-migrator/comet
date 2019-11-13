@@ -93,6 +93,10 @@ async def test_lock_manager():
     assert task2_future.done()
     assert not await lock.locked()
 
+    # Test that the lock entries are removed when it is closed
+    await lock.close()
+    assert not await redis.execute("exists", lock.lockname)
+
     redis.close()
     await redis.wait_closed()
 

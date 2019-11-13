@@ -31,20 +31,14 @@ class Lock:
     should be used within the locked region to prevent other tasks starving
     the locking task of connections preventing it from unlocking the region.
 
-    The lock requires a minimum of one connection to function.
-
-    Parameters
-    ----------
-    redis : aioredis.ConnectionsPool
-        A connections pool instance that will be used to connect to the redis database.
-    name : str
-        A name for the lock. This must be unique (i.e. not clash with
-        other locks), and be set across all processes that want to use
-        the same lock.
+    The lock requires a minimum of one free connection to function.
     """
 
     def __init__(self, redis, name):
-        """Create context manager.
+        """Create the lock.
+
+        This should probably not be called directly. Use `Lock.create`
+        instead.
         """
         self.name = name
         self.redis = redis
@@ -52,7 +46,22 @@ class Lock:
 
     @classmethod
     async def create(cls, redis, name):
+        """Create a distributed Lock using redis.
 
+        Parameters
+        ----------
+        redis : aioredis.ConnectionsPool
+            A connections pool instance that will be used to connect to the redis database.
+        name : str
+            A name for the lock. This must be unique (i.e. not clash with
+            other locks), and be set across all processes that want to use
+            the same lock.
+
+        Returns
+        -------
+        lock : Lock
+            The created lock.
+        """
         self = cls(redis, name)
 
         # Clear the lock and recreate
@@ -62,8 +71,18 @@ class Lock:
 
         return self
 
+    async def close(self):
+        """Clean up the database entries for the lock.
+
+        This will acquire the lock before removing it.
+        """
+        await self.acquire()
+        self.redis.release(self._redis_conn)
+        self.redis = None
+
     @property
     def lockname(self):
+        """Name of the lock variable."""
         # TODO: mangle to avoid name clashes
         return f"lock_{self.name}"
 
@@ -93,16 +112,14 @@ class Lock:
             workers using all the redis connections.
         """
         # Acquire a connection to perform the blocking operation on the database
-        logger.debug(f"Acquiring lock {self.name}: getting database conn")
+        logger.debug(f"Acquiring lock {self.name}.")
         if r is None:
             r = await self.redis.acquire()
-        logger.debug(f"Acquiring lock {self.name}: popping list entry")
         if (await r.execute("blpop", self.lockname, 0)) != [self.lockname, "1"]:
             raise LockError(
                 f"Failure acquiring lock: {self.name} (unexpected value in redis lock)"
             )
 
-        logger.debug(f"Acquiring lock {self.name}: setting internal connection")
         # Check there is no active connection (there shouldn't be, this is just a consistency check)
         if self._redis_conn is not None:
             raise LockError(
@@ -111,6 +128,7 @@ class Lock:
 
         # Now we hold the lock, we can set the internal connection copy
         self._redis_conn = r
+        logger.debug(f"Acquired lock {self.name}.")
         return r
 
     async def release(self, close=True):
@@ -126,7 +144,6 @@ class Lock:
         """
 
         # Check we have an active connection
-        logger.debug(f"Releasing lock {self.name}: resetting internal connection")
         if (
             not isinstance(self._redis_conn, aioredis.connection.RedisConnection)
             or self._redis_conn.closed
@@ -141,14 +158,13 @@ class Lock:
         self._redis_conn = None
 
         # Release the lock in redis
-        logger.debug(f"Releasing lock {self.name}: pushing new list entry")
         if (await r.execute("lpush", self.lockname, 1)) != 1:
             raise LockError(f"Failure releasing lock: {self.name} (released twice?)")
 
         # Close our copy of the connection
-        logger.debug(f"Releasing lock {self.name}: releasing connection")
         if close:
             self.redis.release(r)
+        logger.debug(f"Released lock {self.name}.")
 
     async def __aenter__(self):
         """Acquire lock."""
@@ -170,17 +186,53 @@ class Condition:
     `.wait()` has returned.
 
     This requires a minimum of one available connection in the pool per
-    waiting task, and one extra for the notify call as it needs to acquire
+    waiting task, and one extra for the notify call because it needs to acquire
     the lock itself.
     """
 
     def __init__(self, lock, name):
+        """Create the condition variable.
+
+        Don't call this directly. Use `Condition.create`.
+        """
         self.lock = lock
         self.name = name
 
         self.locked = lock.locked
         self.acquire = lock.acquire
         self.release = lock.release
+
+    @classmethod
+    async def create(cls, lock, name):
+        """Create a distributed condition variable using redis.
+
+        Parameters
+        ----------
+        lock : Lock
+            A lock instance.
+        name : str
+            Name of the condition variable.
+
+
+        Returns
+        -------
+        cond : Condition
+            The created condition variable.
+        """
+        self = cls(lock, name)
+        await self.lock.redis.execute("hset", "WAITING", self.condname, 0)
+        return self
+
+    async def close(self):
+        """Clean up the database state of the condition variable.
+
+        This will not do anything to tasks waiting on the variable. These
+        should be cleaned up before calling this. It will also not close the
+        underlying `Lock`.
+        """
+        async with self.lock as r:
+            await r.execute("del", "WAITING")
+            await r.execute("del", self.condname)
 
     async def __aenter__(self):
         """Acquire lock."""
@@ -190,30 +242,21 @@ class Condition:
         """Release lock."""
         await self.lock.release()
 
-    @classmethod
-    async def create(cls, lock, name):
-        """Create a condition variable.
-
-        Parameters
-        ----------
-        lock : Lock
-            A lock instance.
-        name : str
-            Name of the condition variable.
-        """
-        self = cls(lock, name)
-        await self.lock.redis.execute("hset", "WAITING", self.condname, 0)
-        return self
-
     @property
     def condname(self):
+        """The name of the condition variable."""
         return f"cond_{self.name}"
 
     @property
     def redis(self):
+        """The underlying redis connection pool."""
         return self.lock.redis
 
     async def notify(self, n=1):
+        """Notify one task.
+
+        Not implemented.
+        """
         raise NotImplementedError(
             "only notify_all is supported for a redis condition variable."
         )
