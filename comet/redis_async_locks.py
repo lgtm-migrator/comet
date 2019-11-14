@@ -94,7 +94,7 @@ class Lock:
 
     # TODO: can we do this synchronously?
     async def locked(self):
-        """Is the lock already acquired?"""
+        """Tells if the lock is already acquired."""
         return int(await self.redis.execute("llen", self.lockname)) == 0
 
     async def acquire(self, r=None, no_block=False):
@@ -266,12 +266,12 @@ class Condition:
 
     @property
     def condname(self):
-        """The name of the condition variable."""
+        """Get name of the condition variable."""
         return f"cond_{self.name}"
 
     @property
     def redis(self):
-        """The underlying redis connection pool."""
+        """Get underlying redis connection pool."""
         return self.lock.redis
 
     async def notify(self, n=1):
@@ -284,8 +284,7 @@ class Condition:
         )
 
     async def notify_all(self):
-        """Notify all processes waiting for the condition variable.
-        """
+        """Notify all processes waiting for the condition variable."""
 
         #
         # PSEUDOCODE:
