@@ -66,13 +66,13 @@ def broker():
     shutil.rmtree(dir)
 
 
-@pytest.fixture(scope="function", autouse=True)
-def archiver():
-    archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
-    yield dir
-    pid = archiver.pid
-    os.kill(pid, signal.SIGINT)
-    archiver.terminate()
+# @pytest.fixture(scope="function", autouse=True)
+# def archiver():
+#     archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
+#     yield dir
+#     pid = archiver.pid
+#     os.kill(pid, signal.SIGINT)
+#     archiver.terminate()
 
 
 @pytest.fixture(scope="session", autouse=False)
@@ -99,42 +99,42 @@ def test_register_config(manager, broker):
 
     assert expected_config_dump == manager.get_state()
 
-    # Find the dump file
-    dump_files = os.listdir(broker)
-    dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
-    dump_times = [f[:-10] for f in dump_files]
-    dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-    freshest = dump_times.index(max(dump_times))
+    # # Find the dump file
+    # dump_files = os.listdir(broker)
+    # dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
+    # dump_times = [f[:-10] for f in dump_files]
+    # dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
+    # freshest = dump_times.index(max(dump_times))
 
-    with open(os.path.join(broker, dump_files[freshest]), "r") as json_file:
-        comet_start_dump = json.loads(json_file.readline())
-        comet_config_dump = json.loads(json_file.readline())
-
-        start_dump = json.loads(json_file.readline())
-        config_dump = json.loads(json_file.readline())
-
-    assert comet_start_dump["state"]["type"] == "start_comet.broker"
-    assert comet_config_dump["state"]["type"] == "config_comet.broker"
-
-    expected_start_dump = {
-        "time": now.strftime(TIMESTAMP_FORMAT),
-        "version": version,
-        "type": "start_{}".format(__name__),
-    }
-    assert start_dump["state"] == expected_start_dump
-    assert start_dump["hash"] == manager._make_hash(expected_start_dump)
-    assert datetime.strptime(
-        start_dump["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-    assert datetime.strptime(
-        start_dump["state"]["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-
-    assert config_dump["state"] == expected_config_dump
-    assert datetime.strptime(
-        config_dump["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-    assert config_dump["hash"] == manager._make_hash(expected_config_dump)
+    # with open(os.path.join(broker, dump_files[freshest]), "r") as json_file:
+    #     comet_start_dump = json.loads(json_file.readline())
+    #     comet_config_dump = json.loads(json_file.readline())
+    #
+    #     start_dump = json.loads(json_file.readline())
+    #     config_dump = json.loads(json_file.readline())
+    #
+    # assert comet_start_dump["state"]["type"] == "start_comet.broker"
+    # assert comet_config_dump["state"]["type"] == "config_comet.broker"
+    #
+    # expected_start_dump = {
+    #     "time": now.strftime(TIMESTAMP_FORMAT),
+    #     "version": version,
+    #     "type": "start_{}".format(__name__),
+    # }
+    # assert start_dump["state"] == expected_start_dump
+    # assert start_dump["hash"] == manager._make_hash(expected_start_dump)
+    # assert datetime.strptime(
+    #     start_dump["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    # assert datetime.strptime(
+    #     start_dump["state"]["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    #
+    # assert config_dump["state"] == expected_config_dump
+    # assert datetime.strptime(
+    #     config_dump["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    # assert config_dump["hash"] == manager._make_hash(expected_config_dump)
 
 
 # TODO: register stuff here, then with a new broker test recovery in test_recover
@@ -159,33 +159,33 @@ def test_recover(manager, broker, simple_ds):
     assert ds["type"] == "test"
 
 
-def test_archiver(archiver, simple_ds, manager):
-    dset_id = simple_ds[0]
-    state_id = simple_ds[1]
-
-    time.sleep(1)
-
-    # Tell chimedb where the database connection config is
-    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
-    os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
-
-    # Make sure we don't write to the actual chime database
-    os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
-
-    # Open database connection
-    chimedb.connect()
-
-    ds = get_dataset(dset_id)
-
-    assert ds.state.id == state_id
-    assert ds.root is True
-
-    state = get_state(state_id)
-    assert state.id == state_id
-    assert state.type.name == "test"
-    assert state.data == {"foo": "bar", "type": "test"}
-
-    chimedb.close()
+# def test_archiver(archiver, simple_ds, manager):
+#     dset_id = simple_ds[0]
+#     state_id = simple_ds[1]
+#
+#     time.sleep(1)
+#
+#     # Tell chimedb where the database connection config is
+#     assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+#     os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
+#
+#     # Make sure we don't write to the actual chime database
+#     os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
+#
+#     # Open database connection
+#     chimedb.connect()
+#
+#     ds = get_dataset(dset_id)
+#
+#     assert ds.state.id == state_id
+#     assert ds.root is True
+#
+#     state = get_state(state_id)
+#     assert state.id == state_id
+#     assert state.type.name == "test"
+#     assert state.data == {"foo": "bar", "type": "test"}
+#
+#     chimedb.close()
 
 
 def test_status(simple_ds, manager):
