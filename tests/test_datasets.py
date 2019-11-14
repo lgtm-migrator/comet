@@ -33,7 +33,6 @@ J = {"meta": "data"}
 
 now = datetime.utcnow()
 version = "0.1.1"
-dir = tempfile.mkdtemp()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -54,16 +53,15 @@ def broker():
     # Make sure we don't write to the actual chime database
     os.environ["CHIMEDB_TEST_ENABLE"] = "Yes, please."
 
-    broker = Popen(["comet", "--debug", "1", "-d", dir, "-t", "2", "-p", PORT])
+    broker = Popen(["comet", "--debug", "1", "-t", "2", "-p", PORT])
     time.sleep(3)
-    yield dir
+    yield
     pid = broker.pid
     os.kill(pid, signal.SIGINT)
     broker.terminate()
 
     # Give the broker a moment to delete the .lock file
     time.sleep(0.1)
-    shutil.rmtree(dir)
 
 
 # @pytest.fixture(scope="function", autouse=True)
