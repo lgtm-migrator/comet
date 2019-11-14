@@ -19,7 +19,7 @@ from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-from .redis_async_locks import Lock, Condition
+from .redis_async_locks import Lock, Condition, LockError
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
@@ -612,11 +612,27 @@ async def create_locks():
 async def close_locks():
     """Create all redis locks."""
     # Free the condition variables first as this requires the lock to do so.
-    await cond_states.close()
-    await cond_datasets.close()
-    await lock_states.close()
-    await lock_datasets.close()
-    await lock_external_states.close()
+    # Ignore if lock already closed by another worker.
+    try:
+        await cond_states.close()
+    except LockError:
+        pass
+    try:
+        await cond_datasets.close()
+    except LockError:
+        pass
+    try:
+        await lock_states.close()
+    except LockError:
+        pass
+    try:
+        await lock_datasets.close()
+    except LockError:
+        pass
+    try:
+        await lock_external_states.close()
+    except LockError:
+        return
 
 
 # Create the Redis connection pool, use sanic to start it so that it
