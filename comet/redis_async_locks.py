@@ -64,10 +64,12 @@ class Lock:
         """
         self = cls(redis, name)
 
-        # Clear the lock and recreate
-        await redis.execute("del", self.lockname)
-        if (await redis.execute("lpush", self.lockname, 1)) != 1:
-            raise LockError(f"Failure creating redis lock: {self.name} (already used?)")
+        await redis.execute(
+            "eval",
+            "redis.call('del', KEYS[1]); redis.call('lpush', KEYS[1], '1')",
+            1,
+            self.lockname,
+        )
 
         return self
 

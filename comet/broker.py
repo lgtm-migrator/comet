@@ -91,17 +91,6 @@ async def external_state(request):
 
     async with lock_external_states as r:
         await r.execute("hset", "external_state", type, hash)
-        if request.json.get("dump", True):
-            ext_state_list = await r.execute("hgetall", "external_state")
-            # hgetall returns a list with keys and values... sort it into a dict:
-            ext_state_dict = dict(zip(ext_state_list[0::2], ext_state_list[1::2]))
-            ext_state_dump = {"external-state": ext_state_dict}
-
-    # Dump to file:
-    if request.json.get("dump", True):
-        if "time" in request.json:
-            ext_state_dump["time"] = request.json["time"]
-        await dumper.dump(ext_state_dump, redis)
 
     # TODO: tell kotekan that this happened
 
@@ -134,12 +123,6 @@ async def register_state(request):
             reply["request"] = "get_state"
             reply["hash"] = hash
             logger.debug("register-state: Asking for state, hash: {}".format(hash))
-
-    if request.json.get("dump", True):
-        if state is not None:
-            # Dump state to file
-            state_dump = {"state": None, "hash": hash}
-            await dumper.dump(state_dump, redis)
 
     return response.json(reply)
 
@@ -180,11 +163,6 @@ async def send_state(request):
     # Remove it from the set of requested states (if it's in there.)
     await redis.execute("srem", "requested_states", hash)
 
-    if request.json.get("dump", True):
-        # Dump state to file
-        state_dump = {"state": state, "hash": hash}
-        await dumper.dump(state_dump, redis)
-
     return response.json(reply)
 
 
@@ -202,9 +180,6 @@ async def register_dataset(request):
     dataset_valid = await check_dataset(ds)
     reply = dict()
     root = await find_root(hash, ds)
-
-    # Only dump new datasets.
-    dump = False
 
     # Lack datasets and check if dataset already known.
     async with lock_datasets as r:
@@ -224,7 +199,6 @@ async def register_dataset(request):
         elif dataset_valid:
             # save the dataset
             await save_dataset(r, hash, ds, root)
-            dump = request.json.get("dump", True)
 
             reply["result"] = "success"
             await cond_datasets.notify_all()
@@ -235,13 +209,6 @@ async def register_dataset(request):
                     hash, ds
                 )
             )
-
-    # Dump dataset to file
-    if dump:
-        ds_dump = {"ds": ds, "hash": hash}
-        if "time" in request.json:
-            ds_dump["time"] = request.json["time"]
-        await dumper.dump(ds_dump, redis)
 
     return response.json(reply)
 
@@ -542,11 +509,9 @@ async def tree(root):
 class Broker:
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, data_dump_path, file_lock_time, debug, recover, workers, port):
-        global dumper
+    def __init__(self, file_lock_time, debug, recover, workers, port):
 
         self.config = {
-            "data_dump_path": data_dump_path,
             "file_lock_time": file_lock_time,
             "debug": debug,
             "recover": recover,
@@ -574,6 +539,24 @@ class Broker:
             )
             hash = r.spop("requested_states")
 
+    def _wait_and_register(self):
+
+        # Wait until the port has been set (meaning comet is available)
+        while not self.port:
+            sleep(1)
+
+        manager = Manager("localhost", self.port)
+        try:
+            manager.register_start(self.startup_time, __version__)
+            manager.register_config(self.config)
+        except CometError as exc:
+            logger.error(
+                "Comet failed registering its own startup and initial config: {}".format(
+                    exc
+                )
+            )
+            exit(1)
+
     def run_comet(self):
         """Run comet dataset broker."""
 
@@ -583,14 +566,11 @@ class Broker:
             )
         )
 
-        # TODO: figure out where to create the locks such that the initial
-        # registration has them.
-
-        # # Create all redis locks before doing anything
-        # asyncio.run(create_locks())
-
         self._flush_redis()
 
+        # # Register config with broker
+        t = Thread(target=self._wait_and_register)
+        t.start()
 
         # Check if port is set to 0 for random open port
         port = self.config["port"]
@@ -614,6 +594,9 @@ class Broker:
             **server_kwargs
         )
 
+        t.join()
+        logger.info("Comet stopped.")
+
 
 async def create_locks():
     """Create all redis locks."""
@@ -624,6 +607,7 @@ async def create_locks():
     lock_external_states = await Lock.create(redis, "external_datasets")
     cond_states = await Condition.create(lock_states, "states")
     cond_datasets = await Condition.create(lock_datasets, "datasets")
+
 
 async def close_locks():
     """Create all redis locks."""
