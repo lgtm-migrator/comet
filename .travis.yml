@@ -1,12 +1,22 @@
 language: python
 os: linux
 sudo: required
-dist: xenial
-
+dist: bionic
+cache: ccache
 python:
     - 3.7
 notifications:
     email: false
+compiler:
+    - gcc-8
+addons:
+    apt:
+        packages:
+            # Needed for kotekan
+            - libevent-dev
+            - libboost-test-dev
+            - gcc-8
+            - g++-8
 services:
     - redis-server
     - mysql
@@ -22,7 +32,7 @@ install:
     - python -m pip install .
 
 before_script:
-  - mysql -e "CREATE DATABASE test;"
+    - mysql -e "CREATE DATABASE test;"
 
 script:
     # Run pycodestyle on all .py files in all subfolders
@@ -33,3 +43,6 @@ script:
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
     - pytest -s
+
+    # Clone kotekan and run some of its tests
+    - ./kotetest.sh

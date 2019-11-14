@@ -4,11 +4,10 @@ import asyncio
 import datetime
 import json
 import os
+import redis as redis_sync
 
 from bisect import bisect_left
 from caput import time
-from copy import copy
-from signal import signal, SIGINT
 from socket import socket
 from threading import Thread
 from time import sleep
@@ -20,11 +19,11 @@ from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-from .redis_async_locks import Lock, Condition
+from .redis_async_locks import Lock, Condition, LockError
 
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
-redis_instance = [("localhost", 6379)]
+REDIS_SERVER = ("localhost", 6379)
 
 app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 600
@@ -268,17 +267,17 @@ async def gather_update(ts, roots):
     Returns a dict of dataset ID -> dataset with all datasets with the
     given roots that were registered after the given timestamp.
     """
+    update = dict()
     async with lock_datasets as r:
         for root in roots:
             # Get both dicts from redis concurrently:
-            keys_task = asyncio.ensure_future(
-                r.execute("hget", "datasets_of_root_keys", root)
+            keys, tree = await asyncio.gather(
+                r.execute("hget", "datasets_of_root_keys", root),
+                r.execute("hget", "datasets_of_root", root),
             )
-            tree = reversed(
-                json.loads(await r.execute("hget", "datasets_of_root", root))
-            )
-            (keys_task,), _ = asyncio.wait(keys_task)
-            keys = reversed(json.loads(keys_task.result()))
+
+            keys = reversed(json.loads(keys))
+            tree = list(reversed(json.loads(tree)))
 
             # The nodes in tree are ordered by their timestamp from new to
             # old, so we are done as soon as we find an older timestamp than
@@ -289,10 +288,13 @@ async def gather_update(ts, roots):
                     break
                 tasks.append(asyncio.ensure_future(r.execute("hget", "datasets", n)))
 
-        # Wait for all concurrent tasks
-        tasks, _ = await asyncio.wait(tasks)
-        # put back together the root ds IDs and the datasets
-        update = dict(zip(tree, [task.result() for task in tasks]))
+            if tasks:
+                # Wait for all concurrent tasks
+                tasks, _ = await asyncio.wait(tasks)
+                # put back together the root ds IDs and the datasets
+                update.update(
+                    dict(zip(tree, [json.loads(task.result()) for task in tasks]))
+                )
     return update
 
 
@@ -355,7 +357,7 @@ async def request_state(request):
         return response.json(reply)
     logger.debug("request-state: found state ID {}".format(id))
 
-    reply["state"] = await redis.execute("hget", "states", id)
+    reply["state"] = json.loads(await redis.execute("hget", "states", id))
 
     reply["result"] = "success"
     logger.debug("request-state: Replying with state {}".format(id))
@@ -497,13 +499,12 @@ async def tree(root):
     """Return a list of all nodes in the given tree."""
     async with lock_datasets as r:
         datasets_of_root = json.loads(await r.execute("hget", "datasets_of_root", root))
-        tasks = asyncio.ensure_future(
-            r.execute("hget", "datasets", n) for n in datasets_of_root
-        )
 
-        # Wait for all concurrent tasks
-        tasks, _ = await asyncio.wait(tasks)
-        tree = dict(zip(datasets_of_root, [task.result() for task in tasks]))
+        # Request all datasets concurrently
+        dsets = await asyncio.gather(
+            *[r.execute("hget", "datasets", n) for n in datasets_of_root]
+        )
+        tree = dict(zip(datasets_of_root, [json.loads(ds) for ds in dsets]))
     return tree
 
 
@@ -523,6 +524,22 @@ class Broker:
         self.startup_time = datetime.datetime.utcnow()
         self.n_workers = workers
         self.port = None
+
+    def _flush_redis(self):
+        """
+        Flush from redis what we don't want to keep on start.
+
+        At the moment this only deletes members of the set "requested_states".
+        """
+        r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
+        hash = r.spop("requested_states")
+        while hash:
+            logger.warning(
+                "Found requested state in redis on startup: {}\nFlushing...".format(
+                    hash.decode()
+                )
+            )
+            hash = r.spop("requested_states")
 
     def _wait_and_register(self):
 
@@ -550,6 +567,8 @@ class Broker:
                 __version__, self.config["port"]
             )
         )
+
+        self._flush_redis()
 
         # # Register config with broker
         t = Thread(target=self._wait_and_register)
@@ -595,11 +614,27 @@ async def create_locks():
 async def close_locks():
     """Create all redis locks."""
     # Free the condition variables first as this requires the lock to do so.
-    await cond_states.close()
-    await cond_datasets.close()
-    await lock_states.close()
-    await lock_datasets.close()
-    await lock_external_states.close()
+    # Ignore if lock already closed by another worker.
+    try:
+        await cond_states.close()
+    except LockError:
+        pass
+    try:
+        await cond_datasets.close()
+    except LockError:
+        pass
+    try:
+        await lock_states.close()
+    except LockError:
+        pass
+    try:
+        await lock_datasets.close()
+    except LockError:
+        pass
+    try:
+        await lock_external_states.close()
+    except LockError:
+        return
 
 
 # Create the Redis connection pool, use sanic to start it so that it
@@ -608,7 +643,7 @@ async def close_locks():
 async def _init_redis_async(_, loop):
     global redis
     redis = await aioredis.create_pool(
-        ("127.0.0.1", 6379), encoding="utf-8", minsize=20, maxsize=200
+        REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=200
     )
     await create_locks()
 

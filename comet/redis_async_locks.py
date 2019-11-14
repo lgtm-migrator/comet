@@ -76,11 +76,15 @@ class Lock:
     async def close(self):
         """Clean up the database entries for the lock.
 
-        This will acquire the lock before removing it.
+        This will acquire the lock before removing it. Raises a LockError if the lock
+        can't get acquired.
         """
-        await self.acquire()
+        r = await self.acquire(no_block=True)
+        if r is None:
+            raise LockError("Failure closing lock: Can't acquire lock.")
         self.redis.release(self._redis_conn)
         self.redis = None
+        logger.debug("Closed lock {}".format(self.name))
 
     @property
     def lockname(self):
@@ -90,10 +94,10 @@ class Lock:
 
     # TODO: can we do this synchronously?
     async def locked(self):
-        """Is the lock already acquired?"""
+        """Tells if the lock is already acquired."""
         return int(await self.redis.execute("llen", self.lockname)) == 0
 
-    async def acquire(self, r=None):
+    async def acquire(self, r=None, no_block=False):
         """Acquire the lock.
 
         Parameters
@@ -104,6 +108,9 @@ class Lock:
             re-use connections. Warning, if this happens you almost certainly
             want to use `.release(close=False)` to ensure this isn't closed by
             the lock when it is released.
+        no_block : bool
+            Turn on try_lock mode: Instead of blocking, just return `None` in case the
+            lock can't directly be acquired.
 
         Returns
         -------
@@ -116,11 +123,19 @@ class Lock:
         # Acquire a connection to perform the blocking operation on the database
         logger.debug(f"Acquiring lock {self.name}.")
         if r is None:
+            if self.redis is None:
+                raise LockError(
+                    f"Failure acquiring lock: {self.name} (No redis connection pool)"
+                )
             r = await self.redis.acquire()
-        if (await r.execute("blpop", self.lockname, 0)) != [self.lockname, "1"]:
-            raise LockError(
-                f"Failure acquiring lock: {self.name} (unexpected value in redis lock)"
-            )
+        if no_block:
+            if await r.execute("lpop", self.lockname) != "1":
+                return None
+        else:
+            if (await r.execute("blpop", self.lockname, 0)) != [self.lockname, "1"]:
+                raise LockError(
+                    f"Failure acquiring lock: {self.name} (unexpected value in redis lock)"
+                )
 
         # Check there is no active connection (there shouldn't be, this is just a consistency check)
         if self._redis_conn is not None:
@@ -231,11 +246,15 @@ class Condition:
         This will not do anything to tasks waiting on the variable. These
         should be cleaned up before calling this. It will also not close the
         underlying `Lock`, but does need to acquire it to close the condition
-        variable.
+        variable. Raises a LockError if it can't acquire the lock.
         """
-        async with self.lock as r:
-            await r.execute("del", "WAITING")
-            await r.execute("del", self.condname)
+        r = await self.lock.acquire(no_block=True)
+        if r is None:
+            raise LockError("Failed closing condition variable: Can't acquire lock.")
+        await r.execute("del", "WAITING")
+        await r.execute("del", self.condname)
+        await self.lock.release()
+        logger.debug("Closed condition variable {}".format(self.name))
 
     async def __aenter__(self):
         """Acquire lock."""
@@ -247,12 +266,12 @@ class Condition:
 
     @property
     def condname(self):
-        """The name of the condition variable."""
+        """Get name of the condition variable."""
         return f"cond_{self.name}"
 
     @property
     def redis(self):
-        """The underlying redis connection pool."""
+        """Get underlying redis connection pool."""
         return self.lock.redis
 
     async def notify(self, n=1):
@@ -265,8 +284,7 @@ class Condition:
         )
 
     async def notify_all(self):
-        """Notify all processes waiting for the condition variable.
-        """
+        """Notify all processes waiting for the condition variable."""
 
         #
         # PSEUDOCODE:
