@@ -1,5 +1,6 @@
 import json
 import os
+import requests
 import tempfile
 import time
 import pytest
@@ -56,12 +57,7 @@ def broker():
     broker = Popen(["comet", "--debug", "1", "-t", "2", "-p", PORT])
     time.sleep(3)
     yield
-    pid = broker.pid
-    os.kill(pid, signal.SIGINT)
-    broker.terminate()
-
-    # Give the broker a moment to delete the .lock file
-    time.sleep(0.1)
+    os.kill(broker.pid, signal.SIGINT)
 
 
 # @pytest.fixture(scope="function", autouse=True)
@@ -189,3 +185,22 @@ def test_recover(manager, broker, simple_ds):
 def test_status(simple_ds, manager):
     assert simple_ds[0] in manager._get_datasets()
     assert simple_ds[1] in manager._get_states()
+
+
+def test_gather_update(simple_ds, manager, broker):
+    root = simple_ds[0]
+    state_id = manager.register_state({"f00": "b4r"}, "t3st")
+    dset_id0 = manager.register_dataset(state_id, root, "test", False)
+    state_id = manager.register_state({"f00": "br"}, "t3st")
+    dset_id1 = manager.register_dataset(state_id, dset_id0, "test", False)
+    state_id = manager.register_state({"f00": "b4"}, "t3st")
+    dset_id2 = manager.register_dataset(state_id, dset_id1, "test", False)
+
+    result = requests.post(
+        "http://localhost:{}/update-datasets".format(PORT),
+        json={"ds_id": dset_id2, "ts": 0, "roots": [root]},
+    ).json()
+    assert "datasets" in result
+    assert dset_id0 in result["datasets"]
+    assert dset_id1 in result["datasets"]
+    assert dset_id2 in result["datasets"]
