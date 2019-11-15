@@ -2,7 +2,17 @@ language: python
 os: linux
 sudo: required
 dist: bionic
-cache: ccache
+cache:
+  pip: true
+  directories:
+    - $HOME/.ccache
+env:
+  global:
+    - USE_CCACHE=1
+    - CCACHE_SLOPPINESS=pch_defines,time_macros
+    - CCACHE_COMPRESS=1
+    - CCACHE_MAXSIZE=250M
+    - PATH="/usr/lib/ccache:$HOME/miniconda/bin:$PATH"
 python:
     - 3.7
 notifications:
@@ -33,6 +43,7 @@ install:
 
 before_script:
     - mysql -e "CREATE DATABASE test;"
+    - ccache -s || true
 
 script:
     # Run pycodestyle on all .py files in all subfolders
@@ -46,3 +57,4 @@ script:
 
     # Clone kotekan and run some of its tests
     - ./kotetest.sh
+    - ccache -s || true
