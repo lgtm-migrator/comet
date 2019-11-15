@@ -15,7 +15,7 @@ from time import sleep
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, TimeoutError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
@@ -104,7 +104,6 @@ async def register_state(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
-    print(request.json)
     logger.debug(
         "register-state: Received register state request, hash: {}".format(hash)
     )
