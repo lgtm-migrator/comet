@@ -13,6 +13,7 @@ env:
     - CCACHE_COMPRESS=1
     - CCACHE_MAXSIZE=250M
     - PATH="/usr/lib/ccache:$HOME/miniconda/bin:$PATH"
+    - MAKEFLAGS="-j 2"
 python:
     - 3.7
 notifications:
