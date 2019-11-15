@@ -1,5 +1,6 @@
 import json
 import os
+import requests
 import tempfile
 import time
 import pytest
@@ -10,7 +11,7 @@ from subprocess import Popen
 
 from datetime import datetime, timedelta
 from comet import Manager
-from chimedb.dataset import get_state, get_dataset, get_types
+from chimedb.dataset import get_state, get_dataset
 import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
@@ -33,15 +34,11 @@ J = {"meta": "data"}
 
 now = datetime.utcnow()
 version = "0.1.1"
-dir = tempfile.mkdtemp()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def manager():
     manager = Manager("localhost", PORT)
-
-    # Wait for broker to start up.
-    time.sleep(0.1)
 
     manager.register_start(now, version)
     manager.register_config(CONFIG)
@@ -57,32 +54,25 @@ def broker():
     # Make sure we don't write to the actual chime database
     os.environ["CHIMEDB_TEST_ENABLE"] = "Yes, please."
 
-    broker = Popen(["comet", "--debug", "1", "-d", dir, "-t", "2", "-p", PORT])
+    broker = Popen(["comet", "--debug", "1", "-t", "2", "-p", PORT])
     time.sleep(3)
-    yield dir
-    pid = broker.pid
-    os.kill(pid, signal.SIGINT)
-    broker.terminate()
-
-    # Give the broker a moment to delete the .lock file
-    time.sleep(0.1)
-    shutil.rmtree(dir)
+    yield
+    os.kill(broker.pid, signal.SIGINT)
 
 
-@pytest.fixture(scope="function", autouse=True)
-def archiver():
-    archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
-    yield dir
-    pid = archiver.pid
-    os.kill(pid, signal.SIGINT)
-    archiver.terminate()
+# @pytest.fixture(scope="function", autouse=True)
+# def archiver():
+#     archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
+#     yield dir
+#     pid = archiver.pid
+#     os.kill(pid, signal.SIGINT)
+#     archiver.terminate()
 
 
 @pytest.fixture(scope="session", autouse=False)
 def simple_ds(manager):
     state_id = manager.register_state({"foo": "bar"}, "test")
-    dset_id = manager.register_dataset(state_id, None, ["test"], True)
-
+    dset_id = manager.register_dataset(state_id, None, "test", True)
     yield (dset_id, state_id)
 
 
@@ -103,42 +93,42 @@ def test_register_config(manager, broker):
 
     assert expected_config_dump == manager.get_state()
 
-    # Find the dump file
-    dump_files = os.listdir(broker)
-    dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
-    dump_times = [f[:-10] for f in dump_files]
-    dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-    freshest = dump_times.index(max(dump_times))
+    # # Find the dump file
+    # dump_files = os.listdir(broker)
+    # dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
+    # dump_times = [f[:-10] for f in dump_files]
+    # dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
+    # freshest = dump_times.index(max(dump_times))
 
-    with open(os.path.join(broker, dump_files[freshest]), "r") as json_file:
-        comet_start_dump = json.loads(json_file.readline())
-        comet_config_dump = json.loads(json_file.readline())
-
-        start_dump = json.loads(json_file.readline())
-        config_dump = json.loads(json_file.readline())
-
-    assert comet_start_dump["state"]["type"] == "start_comet.broker"
-    assert comet_config_dump["state"]["type"] == "config_comet.broker"
-
-    expected_start_dump = {
-        "time": now.strftime(TIMESTAMP_FORMAT),
-        "version": version,
-        "type": "start_{}".format(__name__),
-    }
-    assert start_dump["state"] == expected_start_dump
-    assert start_dump["hash"] == manager._make_hash(expected_start_dump)
-    assert datetime.strptime(
-        start_dump["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-    assert datetime.strptime(
-        start_dump["state"]["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-
-    assert config_dump["state"] == expected_config_dump
-    assert datetime.strptime(
-        config_dump["time"], TIMESTAMP_FORMAT
-    ) - datetime.utcnow() < timedelta(minutes=1)
-    assert config_dump["hash"] == manager._make_hash(expected_config_dump)
+    # with open(os.path.join(broker, dump_files[freshest]), "r") as json_file:
+    #     comet_start_dump = json.loads(json_file.readline())
+    #     comet_config_dump = json.loads(json_file.readline())
+    #
+    #     start_dump = json.loads(json_file.readline())
+    #     config_dump = json.loads(json_file.readline())
+    #
+    # assert comet_start_dump["state"]["type"] == "start_comet.broker"
+    # assert comet_config_dump["state"]["type"] == "config_comet.broker"
+    #
+    # expected_start_dump = {
+    #     "time": now.strftime(TIMESTAMP_FORMAT),
+    #     "version": version,
+    #     "type": "start_{}".format(__name__),
+    # }
+    # assert start_dump["state"] == expected_start_dump
+    # assert start_dump["hash"] == manager._make_hash(expected_start_dump)
+    # assert datetime.strptime(
+    #     start_dump["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    # assert datetime.strptime(
+    #     start_dump["state"]["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    #
+    # assert config_dump["state"] == expected_config_dump
+    # assert datetime.strptime(
+    #     config_dump["time"], TIMESTAMP_FORMAT
+    # ) - datetime.utcnow() < timedelta(minutes=1)
+    # assert config_dump["hash"] == manager._make_hash(expected_config_dump)
 
 
 # TODO: register stuff here, then with a new broker test recovery in test_recover
@@ -160,38 +150,57 @@ def test_recover(manager, broker, simple_ds):
     assert state == {"foo": "bar", "type": "test"}
     assert ds["is_root"] is True
     # TODO: fix hash function # assert ds["state"] == manager._make_hash(state)
-    assert ds["types"] == ["test"]
+    assert ds["type"] == "test"
 
 
-def test_archiver(archiver, simple_ds, manager):
-    dset_id = simple_ds[0]
-    state_id = simple_ds[1]
-
-    # Tell chimedb where the database connection config is
-    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
-    os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
-
-    # Make sure we don't write to the actual chime database
-    os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
-
-    # Open database connection
-    chimedb.connect()
-
-    ds = get_dataset(dset_id)
-    assert ds.state.id == state_id
-    assert ds.root is True
-
-    types = get_types(dset_id)
-    assert types == ["test"]
-
-    state = get_state(state_id)
-    assert state.id == state_id
-    assert state.type.name == types[0]
-    assert state.data == {"foo": "bar", "type": "test"}
-
-    chimedb.close()
+# def test_archiver(archiver, simple_ds, manager):
+#     dset_id = simple_ds[0]
+#     state_id = simple_ds[1]
+#
+#     time.sleep(1)
+#
+#     # Tell chimedb where the database connection config is
+#     assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+#     os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
+#
+#     # Make sure we don't write to the actual chime database
+#     os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
+#
+#     # Open database connection
+#     chimedb.connect()
+#
+#     ds = get_dataset(dset_id)
+#
+#     assert ds.state.id == state_id
+#     assert ds.root is True
+#
+#     state = get_state(state_id)
+#     assert state.id == state_id
+#     assert state.type.name == "test"
+#     assert state.data == {"foo": "bar", "type": "test"}
+#
+#     chimedb.close()
 
 
 def test_status(simple_ds, manager):
     assert simple_ds[0] in manager._get_datasets()
     assert simple_ds[1] in manager._get_states()
+
+
+def test_gather_update(simple_ds, manager, broker):
+    root = simple_ds[0]
+    state_id = manager.register_state({"f00": "b4r"}, "t3st")
+    dset_id0 = manager.register_dataset(state_id, root, "test", False)
+    state_id = manager.register_state({"f00": "br"}, "t3st")
+    dset_id1 = manager.register_dataset(state_id, dset_id0, "test", False)
+    state_id = manager.register_state({"f00": "b4"}, "t3st")
+    dset_id2 = manager.register_dataset(state_id, dset_id1, "test", False)
+
+    result = requests.post(
+        "http://localhost:{}/update-datasets".format(PORT),
+        json={"ds_id": dset_id2, "ts": 0, "roots": [root]},
+    ).json()
+    assert "datasets" in result
+    assert dset_id0 in result["datasets"]
+    assert dset_id1 in result["datasets"]
+    assert dset_id2 in result["datasets"]
