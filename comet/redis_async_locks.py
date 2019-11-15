@@ -189,7 +189,8 @@ class Lock:
 
     async def __aexit__(self, exc_type, exc, tb):
         """Release lock."""
-        await self.release()
+        if await self.locked():
+            await self.release()
 
 
 class Condition:
@@ -262,7 +263,8 @@ class Condition:
 
     async def __aexit__(self, exc_type, exc, tb):
         """Release lock."""
-        await self.lock.release()
+        if await self.lock.locked():
+            await self.lock.release()
 
     @property
     def condname(self):
