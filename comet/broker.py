@@ -383,6 +383,7 @@ async def wait_for_dset(id):
                             WAIT_TIME, id
                         )
                     )
+                    await lock_datasets.acquire()
                     return False
                 if await r.execute("hexists", "datasets", id):
                     logger.debug("wait_for_ds: Found dataset {}".format(id))
@@ -418,6 +419,7 @@ async def wait_for_state(id):
                             WAIT_TIME, id
                         )
                     )
+                    await lock_states.acquire()
                     return False
                 if await r.execute("hexists", "states", id):
                     logger.debug("wait_for_ds: Found state {}".format(id))
