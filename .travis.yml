@@ -1,25 +1,51 @@
 language: python
 os: linux
 sudo: required
-dist: xenial
-
+dist: bionic
+cache:
+  pip: true
+  directories:
+    - $HOME/.ccache
+env:
+  global:
+    - USE_CCACHE=1
+    - CCACHE_SLOPPINESS=pch_defines,time_macros
+    - CCACHE_COMPRESS=1
+    - CCACHE_MAXSIZE=250M
+    - PATH="/usr/lib/ccache:$HOME/miniconda/bin:$PATH"
+    - MAKEFLAGS="-j 2"
 python:
     - 3.7
 notifications:
     email: false
+compiler:
+    - gcc-8
+addons:
+    apt:
+        packages:
+            # Needed for kotekan
+            - libevent-dev
+            - libboost-test-dev
+            - gcc-8
+            - g++-8
 services:
-  - mysql
+    - redis-server
+    - mysql
 
 before_install:
     - pip install black
     - pip install pydocstyle
     - pip install pytest
+    - pip install pytest-asyncio
+    - pip install locust
+    - pip install future  # FIXME: somehow this doesn't get installed as a dependency of caput
 
 install:
     - python -m pip install .
 
 before_script:
-  - mysql -e "CREATE DATABASE test;"
+    - mysql -e "CREATE DATABASE test;"
+    - ccache -s || true
 
 script:
     # Run pycodestyle on all .py files in all subfolders
@@ -29,4 +55,11 @@ script:
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
-    - pytest
+    - pytest -s
+
+    # Clone kotekan and run some of its tests
+    - ./kotetest.sh
+    - ccache -s || true
+
+    # run locust stress tests
+    - locust -f locust_stress_testing.py --no-web -c 100 -r 10 --run-time 2m

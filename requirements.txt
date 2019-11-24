@@ -1,4 +1,9 @@
+aioredis
+redis
+requests
 sanic ; python_version >= '3.6'
+caput @ git+https://github.com/radiocosmology/caput.git
+mmh3
 peewee
 requests
 pymysql
