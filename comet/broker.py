@@ -133,6 +133,8 @@ async def send_state(request):
         if found is not None:
             # if we know it already, does it differ?
             if found != state:
+                # this string needs to be deserialized, contains a state
+                found = json.loads(found)
                 reply["result"] = (
                     "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
