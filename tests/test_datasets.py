@@ -4,14 +4,17 @@ import requests
 import tempfile
 import time
 import pytest
+import redis
+import requests
 import shutil
 import signal
-
-from subprocess import Popen
+import threading
 
 from datetime import datetime, timedelta
+from subprocess import Popen
+
 from comet import Manager
-from chimedb.dataset import get_state, get_dataset
+from chimedb.dataset import get_state, get_dataset, DatasetState, Dataset
 import chimedb.core as chimedb
 from comet.manager import TIMESTAMP_FORMAT
 
@@ -62,19 +65,21 @@ def broker():
     # Make sure we don't write to the actual chime database
     os.environ["CHIMEDB_TEST_ENABLE"] = "Yes, please."
 
-    broker = Popen(["comet", "--debug", "1", "-t", "2", "-p", PORT])
+    broker = Popen(["comet", "--debug", "1", "-p", PORT])
     time.sleep(3)
     yield
     os.kill(broker.pid, signal.SIGINT)
 
 
-# @pytest.fixture(scope="function", autouse=True)
-# def archiver():
-#     archiver = Popen(["comet_archiver", "-d", dir, "-i", "1", "--broker_port", PORT])
-#     yield dir
-#     pid = archiver.pid
-#     os.kill(pid, signal.SIGINT)
-#     archiver.terminate()
+@pytest.fixture(scope="session", autouse=True)
+def archiver(broker):
+    archiver = Popen(
+        ["comet_archiver", "-t", "10", "--broker_port", PORT, "--log_level", "DEBUG"]
+    )
+    yield dir
+    pid = archiver.pid
+    os.kill(pid, signal.SIGINT)
+    archiver.terminate()
 
 
 @pytest.fixture(scope="session", autouse=False)
@@ -101,43 +106,6 @@ def test_register_config(manager, broker):
 
     assert expected_config_dump == manager.get_state()
 
-    # # Find the dump file
-    # dump_files = os.listdir(broker)
-    # dump_files = list(filter(lambda x: x.endswith("data.dump"), dump_files))
-    # dump_times = [f[:-10] for f in dump_files]
-    # dump_times = [datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times]
-    # freshest = dump_times.index(max(dump_times))
-
-    # with open(os.path.join(broker, dump_files[freshest]), "r") as json_file:
-    #     comet_start_dump = json.loads(json_file.readline())
-    #     comet_config_dump = json.loads(json_file.readline())
-    #
-    #     start_dump = json.loads(json_file.readline())
-    #     config_dump = json.loads(json_file.readline())
-    #
-    # assert comet_start_dump["state"]["type"] == "start_comet.broker"
-    # assert comet_config_dump["state"]["type"] == "config_comet.broker"
-    #
-    # expected_start_dump = {
-    #     "time": now.strftime(TIMESTAMP_FORMAT),
-    #     "version": version,
-    #     "type": "start_{}".format(__name__),
-    # }
-    # assert start_dump["state"] == expected_start_dump
-    # assert start_dump["hash"] == manager._make_hash(expected_start_dump)
-    # assert datetime.strptime(
-    #     start_dump["time"], TIMESTAMP_FORMAT
-    # ) - datetime.utcnow() < timedelta(minutes=1)
-    # assert datetime.strptime(
-    #     start_dump["state"]["time"], TIMESTAMP_FORMAT
-    # ) - datetime.utcnow() < timedelta(minutes=1)
-    #
-    # assert config_dump["state"] == expected_config_dump
-    # assert datetime.strptime(
-    #     config_dump["time"], TIMESTAMP_FORMAT
-    # ) - datetime.utcnow() < timedelta(minutes=1)
-    # assert config_dump["hash"] == manager._make_hash(expected_config_dump)
-
 
 # TODO: register stuff here, then with a new broker test recovery in test_recover
 def test_register(manager, broker):
@@ -147,7 +115,7 @@ def test_register(manager, broker):
 def test_recover(manager, broker, simple_ds):
     dset_id = simple_ds[0]
 
-    # Give archiver a moment and make broker release dump file by registering another state.
+    # Give archiver a moment
     time.sleep(2)
     assert manager.broker_status()
     manager.register_config({"blubb": 1})
@@ -161,33 +129,90 @@ def test_recover(manager, broker, simple_ds):
     assert ds["type"] == "test"
 
 
-# def test_archiver(archiver, simple_ds, manager):
-#     dset_id = simple_ds[0]
-#     state_id = simple_ds[1]
-#
-#     time.sleep(1)
-#
-#     # Tell chimedb where the database connection config is
-#     assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
-#     os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
-#
-#     # Make sure we don't write to the actual chime database
-#     os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
-#
-#     # Open database connection
-#     chimedb.connect()
-#
-#     ds = get_dataset(dset_id)
-#
-#     assert ds.state.id == state_id
-#     assert ds.root is True
-#
-#     state = get_state(state_id)
-#     assert state.id == state_id
-#     assert state.type.name == "test"
-#     assert state.data == {"foo": "bar", "type": "test"}
-#
-#     chimedb.close()
+def test_archiver(archiver, simple_ds, manager, broker):
+    dset_id = simple_ds[0]
+    state_id = simple_ds[1]
+
+    # Tell chimedb where the database connection config is
+    assert os.path.isfile(CHIMEDBRC), CHIMEDBRC_MESSAGE
+    os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
+
+    # Make sure we don't write to the actual chime database
+    os.environ["CHIMEDB_TEST_ENABLE"] = "foo"
+
+    # Open database connection
+    chimedb.connect()
+
+    ds = get_dataset(dset_id)
+
+    assert ds.state.id == state_id
+    assert ds.root is True
+
+    state = get_state(state_id)
+    assert state.id == state_id
+    assert state.type.name == "test"
+    assert state.data == {"foo": "bar", "type": "test"}
+
+    chimedb.close()
+
+
+def test_archiver_pushback(archiver):
+    r = redis.Redis("127.0.0.1", 6379)
+    assert r.llen("archive_dataset") == 0
+    assert r.llen("archive_state") == 0
+
+    # remove from redis and DB to make this test behave the same if run twice
+    Dataset.delete().where(Dataset.id == "test_ds").execute()
+    DatasetState.delete().where(DatasetState.id == "test_state").execute()
+    r.hdel("states", "test_state")
+    r.hdel("datasets", "test_ds")
+
+    r.lpush(
+        "archive_state",
+        json.dumps({"hash": "test_state", "time": "1999-01-01-10:10:42.001"}),
+    )
+    time.sleep(0.1)
+
+    # we are testing the ength of the archiver's input list. It's either 1, or 0 (if the
+    # is looking at the entry right now.
+    llen = r.llen("archive_state")
+    assert llen == 1 or llen == 0
+
+    r.lpush(
+        "archive_dataset",
+        json.dumps({"hash": "test_ds", "time": "1999-01-01-10:10:42.001"}),
+    )
+    time.sleep(0.1)
+    llen = r.llen("archive_dataset")
+    assert llen == 1 or llen == 0
+
+    r.hset("datasets", "test_ds", json.dumps({"is_root": True, "state": "test_state"}))
+    time.sleep(0.1)
+    r.llen("archive_dataset")
+    assert llen == 1 or llen == 0
+    r.llen("archive_state")
+    assert llen == 1 or llen == 0
+
+    r.lpush(
+        "archive_state",
+        json.dumps({"hash": "test_state", "time": "1999-01-01-10:10:42.001"}),
+    )
+    r.lpush(
+        "archive_dataset",
+        json.dumps({"hash": "test_ds", "time": "1999-01-01-10:10:42.001"}),
+    )
+    time.sleep(0.1)
+    llen = r.llen("archive_state")
+    assert llen == 1 or llen == 2
+    llen = r.llen("archive_dataset")
+    assert llen == 1 or llen == 2
+
+    r.hset(
+        "states", "test_state", json.dumps({"state": "test_state", "type": "bs_state"})
+    )
+    time.sleep(0.1)
+    assert r.llen("archive_dataset") == 0
+    assert r.llen("archive_state") == 0
 
 
 def test_status(simple_ds, manager):

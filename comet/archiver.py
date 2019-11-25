@@ -1,15 +1,15 @@
 """
 Archiver for CoMeT.
 
-Moves comet broker dumps to a database
+Move comet broker data from redis to a mysql database
 """
 
-import asyncio
 import datetime
 import logging
 import orjson as json
-from pathlib import Path
-import signal
+import random
+import redis
+import time
 
 import chimedb.core as chimedb
 import chimedb.dataset as db
@@ -17,20 +17,41 @@ import chimedb.dataset as db
 from . import Manager, CometError, __version__
 from .manager import TIMESTAMP_FORMAT
 
-
 logger = logging.getLogger(__name__)
-logger.setLevel("INFO")
 
 
 class Archiver:
-    """Main class to run the comet archiver."""
+    """
+    Main class to run the comet archiver.
 
-    def __init__(self, data_dump_path, scrape_interval, broker_host, broker_port):
+    New data that should be archived is expected in a list in redis. The archiver currently
+    monitors the lists `registered_dataset` and `registered_state`. If a state or dataset
+    referenced in any new item, the archiver pushes the item back on the list for later.
+    """
+
+    def __init__(
+        self,
+        broker_host,
+        broker_port,
+        redis_host,
+        redis_port,
+        log_level,
+        failure_wait_time,
+    ):
+        logger.setLevel(log_level)
+
+        # convert ms to s
+        self.failure_wait_time = failure_wait_time / 1000
 
         startup_time = datetime.datetime.utcnow()
-        config = {"data_dump_path": data_dump_path, "scrape_interval": scrape_interval}
-        self.dir = data_dump_path
-        self.interval = scrape_interval
+        config = {
+            "broker_host": broker_host,
+            "broker_port": broker_port,
+            "redis_host": redis_host,
+            "redis_port": redis_port,
+            "log_level": log_level,
+            "failure_wait_time": failure_wait_time,
+        }
 
         manager = Manager(broker_host, broker_port)
         try:
@@ -43,129 +64,148 @@ class Archiver:
             )
             exit(1)
 
-        self.loop = asyncio.get_event_loop()
-        self.task = self.loop.create_task(self._scrape())
-
         # Open database connection
         chimedb.connect(read_write=True)
 
         # Create any missing table.
         chimedb.orm.create_tables("chimedb.dataset")
 
-        # Buffer for entries to retry inserting later.
-        # Some entries have references to others. If a referenced entry is not in the database yet,
-        # the referencing will not be accepted and has to be buffered until it is accepted.
-        self.entry_buffer = list()
-
-    def run(self):
-        """Run comet archiver."""
-        logger.info(
-            "Started CoMeT Archiver {}, scraping path '{}' every {}.".format(
-                __version__, self.dir, datetime.timedelta(seconds=self.interval)
-            )
+        # Open connection to redis
+        self.redis = redis.Redis(
+            redis_host, redis_port, encoding="utf-8", decode_responses=True
         )
 
-        signal.signal(signal.SIGINT, lambda s, f: self.loop.stop())
+    def run(self):
+        """Run comet archiver (forever)."""
+        logger.info("Started CoMeT Archiver {}.".format(__version__))
+
+        # names of the lists we are monitoring on redis
+        TYPES = ["archive_state", "archive_dataset"]
+
+        while True:
+            # Shuffle the list of types, otherwise the archiver can get stuck on a
+            # single invalid item in the first list, ignoring any items in the second
+            # list.
+            random.shuffle(TYPES)
+            what, data = self.redis.brpop(TYPES)
+
+            if what == "archive_state":
+                self._insert_state(data)
+            elif what == "archive_dataset":
+                self._insert_dataset(data)
+            else:
+                logger.warning(
+                    "Unexpected key returned by BRPOP: {} (expected one of {}).".format(
+                        what, TYPES
+                    )
+                )
+                # slow down. this would turn into a busy wait otherwise...
+                time.sleep(self.failure_wait_time)
+
+    def _pushback(self, listname, data):
+        """
+        Push the item back into the list.
+
+        Slow down so this doesn't become a busy-wait.
+        """
+        llen = self.redis.lpush(listname, data)
+        logger.error(
+            "Pushed data back into the list {} on redis at {}:{}. Current list length is {}. Please have a look. Sleeping for {}s ...".format(
+                listname,
+                self.redis.connection_pool.connection_kwargs["host"],
+                self.redis.connection_pool.connection_kwargs["port"],
+                llen,
+                self.failure_wait_time,
+            )
+        )
+        time.sleep(self.failure_wait_time)
+
+    def _insert_state(self, data):
+        logger.info("Archiving state {}".format(data))
+        json_data = json.loads(data)
+
+        # Parse the json data. If anything goes wrong, push the state back into the list. This is someone else's problem now.
+        try:
+            state_id = json_data["hash"]
+            time = json_data["time"]
+        except KeyError as key:
+            logger.error("Key {} not found in state data {}.".format(key, json_data))
+            self._pushback("archive_state", data)
+            return
 
         try:
-            self.loop.run_forever()
-        except asyncio.CancelledError:
-            pass
+            timestamp = datetime.datetime.strptime(time, TIMESTAMP_FORMAT)
+        except ValueError as err:
+            logger.error(
+                "Failure parsing timestamp {} in state data: {}.".format(time, err)
+            )
+            self._pushback("archive_state", data)
+            return
 
-    async def _scrape(self):
-        try:
-            time_last_scraped = datetime.datetime.min
-            while True:
-
-                # Find the dumped files
-                dump_files = Path(self.dir).iterdir()
-                dump_files = list(
-                    filter(lambda x: x.as_posix().endswith("data.dump"), dump_files)
-                )
-                dump_times = [f.name[:-10] for f in dump_files]
-                dump_times = [
-                    datetime.datetime.strptime(t, TIMESTAMP_FORMAT) for t in dump_times
-                ]
-                if dump_files:
-                    dump_times, dump_files = zip(*sorted(zip(dump_times, dump_files)))
-
-                new_times = list(filter(lambda t: t > time_last_scraped, dump_times))
-
-                for time in new_times:
-                    dfile = dump_files[dump_times.index(time)]
-
-                    # Only read files that don't have a lock file.
-                    if not Path(self.dir).joinpath("{}.lock".format(dfile)).is_file():
-                        # Set time_last_scraped to the timestamp of this file
-                        time_last_scraped = time
-                        with open(
-                            Path(self.dir).joinpath(dfile).as_posix(), "r"
-                        ) as json_file:
-                            line_num = 0
-                            for line in json_file:
-                                line_num += 1
-                                entry = json.loads(line)
-                                self._insert_entry(entry, dfile, line_num)
-                        logger.info(
-                            "Archived {} entries from {}".format(line_num, dfile)
-                        )
-
-                # Check if there is anything in the buffer that is accepted now
-                buffer_len = len(self.entry_buffer)
-                if buffer_len:
-                    logger.debug("Inserting {} entries from buffer.".format(buffer_len))
-                for i in range(buffer_len):
-                    entry = self.entry_buffer.pop(0)
-                    self._insert_entry(entry, dfile)
-                buffer_len = len(self.entry_buffer)
-                if buffer_len:
-                    logger.debug("Buffer still has {} entrie(s):".format(buffer_len))
-                for e in self.entry_buffer:
-                    logger.debug("{}".format(e))
-
-                logger.debug(
-                    "Scraping again in {}.".format(
-                        datetime.timedelta(seconds=self.interval)
-                    )
-                )
-
-                await asyncio.sleep(self.interval)
-        except BaseException:
-            self.loop.stop()
-            raise
-
-    def _insert_entry(self, entry, dfile, line_num="?"):
-        if "state" in entry.keys():
-            try:
-                if not db.insert_state(entry):
-                    # Retry later
-                    self.entry_buffer.append(entry)
-            except KeyError as key:
-                logger.error(
-                    "Entry in dump file {}:{} is missing key {}. "
-                    "Skipping! This is the entry:\n{}".format(
-                        Path(self.dir).joinpath(dfile), line_num, key, entry
-                    )
-                )
-        elif "ds" in entry.keys():
-            try:
-                db.insert_dataset(entry)
-            except KeyError as key:
-                logger.error(
-                    "Entry in dump file {}:{} is missing key {}. "
-                    "Skipping! This is the entry:\n{}".format(
-                        Path(self.dir).joinpath(dfile), line_num, key, entry
-                    )
-                )
-        else:
-            logger.warning(
-                "Entry in dump file {}:{} is neither a state "
-                "nor a dataset. Skipping! This is the entry:\n{}".format(
-                    Path(self.dir).joinpath(dfile), line_num, entry
+        # Get the state from redis
+        state = self.redis.hget("states", state_id)
+        if state is None:
+            logger.error(
+                "Failure archiving state {}: state is not known to broker/redis.".format(
+                    state_id
                 )
             )
+            self._pushback("archive_state", data)
+            return
+        state = json.loads(state)
 
-    def stop(self):
+        state_type = state["type"]
+        db.insert_state(state_id, state_type, timestamp, state)
+
+    def _insert_dataset(self, data):
+        logger.info("Archiving dataset {}".format(data))
+        json_data = json.loads(data)
+
+        # Parse the json data. If anything goes wrong, push the state back into the list. This is someone else's problem now.
+        try:
+            ds_id = json_data["hash"]
+            time = json_data["time"]
+        except KeyError as key:
+            logger.error("Key {} not found in dataset data {}.".format(key, json_data))
+            self._pushback("archive_dataset", data)
+            return
+
+        try:
+            timestamp = datetime.datetime.strptime(time, TIMESTAMP_FORMAT)
+        except ValueError as err:
+            logger.error(
+                "Failure parsing timestamp {} in dataset data: {}.".format(time, err)
+            )
+            self._pushback("archive_dataset", data)
+            return
+
+        # Get the dataset from redis
+        dataset = self.redis.hget("datasets", ds_id)
+        if dataset is None:
+            logger.error(
+                "Failure archiving dataset (dataset is not known to broker/redis): {}".format(
+                    ds_id
+                )
+            )
+            self._pushback("archive_dataset", data)
+            return
+        dataset = json.loads(dataset)
+
+        base_dset = dataset.get("base_dset", None)
+        is_root = dataset.get("is_root", False)
+        state = dataset["state"]
+
+        try:
+            db.insert_dataset(ds_id, base_dset, is_root, state, timestamp)
+        except db.DatasetState.DoesNotExist:
+            logger.error(
+                "Failure archiving dataset (DB doesn't know the referenced state): {}".format(
+                    data
+                )
+            )
+            self._pushback("archive_dataset", data)
+            return
+
+    def __del__(self):
         """Stop the archiver."""
-        self.task.cancel()
         chimedb.close()

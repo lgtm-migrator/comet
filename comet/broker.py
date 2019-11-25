@@ -3,7 +3,6 @@ import aioredis
 import asyncio
 import datetime
 import json
-import os
 import redis as redis_sync
 
 from bisect import bisect_left
@@ -80,9 +79,64 @@ async def get_datasets(request):
     return response.json(reply)
 
 
+async def archive(data_type, json_data):
+    """
+    Add a state or dataset to the list for the archiver.
 
+    Parameters
+    ----------
+    data_type : str
+        One of "dataset" or "state".
+    json_data : dict
+        Should contain the field `hash` (`str`). Optionally it can contain the field
+        `time` (`str`), otherwise the broker will use the current time. Should have the
+         format `comet.manager.TIMESTAMP_FORMAT`.
 
+    Raises
+    ------
+    CometError
+        If the parameters are not as described above.
+    """
+    logger.debug("Passing {} to archiver: {}".format(data_type, json_data))
 
+    # currently known types to be used here
+    TYPES = ["dataset", "state"]
+
+    # check parameters
+    if not isinstance(data_type, str):
+        raise CometError(
+            "Expected string for type to send to archiver (was {}).",
+            format(type(data_type)),
+        )
+    if data_type not in TYPES:
+        raise CometError(
+            "Expected one of {} for type to send to archiver (was {}).",
+            format(TYPES, data_type),
+        )
+    if "hash" not in json_data:
+        raise CometError("No hash found in json_data: {}".format(json_data))
+    if not isinstance(json_data["hash"], str):
+        raise CometError(
+            "Expected type str for hash in json_data (was {})".format(
+                type(json_data["hash"])
+            )
+        )
+    if "time" not in json_data:
+        json_data["time"] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
+    else:
+        if not isinstance(json_data["time"], str):
+            raise CometError(
+                "Expected type str for time in json_data (was {})".format(
+                    type(json_data["time"])
+                )
+            )
+
+    # push it into list for archiver
+    redis.execute(
+        "lpush",
+        "archive_{}".format(data_type),
+        json.dumps({"hash": json_data["hash"], "time": json_data["time"]}),
+    )
 
 
 @app.route("/register-state", methods=["POST"])
@@ -101,6 +155,7 @@ async def register_state(request):
         if state is None:
             # we don't know this state, did we request it already?
             if await r.execute("sismember", "requested_states", hash):
+                await archive("state", request.json)
                 return response.json(reply)
 
             # otherwise, request it now
@@ -126,6 +181,7 @@ async def send_state(request):
         type = None
     logger.info("/send-state {} {}".format(type, hash))
     reply = dict()
+    archive_state = False
 
     # Lock states and check if we know this state already.
     async with lock_states as r:
@@ -145,11 +201,14 @@ async def send_state(request):
         else:
             await r.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
+            archive_state = True
             await cond_states.notify_all()
 
     # Remove it from the set of requested states (if it's in there.)
     await redis.execute("srem", "requested_states", hash)
 
+    if archive_state:
+        await archive("state", request.json)
     return response.json(reply)
 
 
@@ -166,6 +225,7 @@ async def register_dataset(request):
     dataset_valid = await check_dataset(ds)
     reply = dict()
     root = await find_root(hash, ds)
+    archive_ds = False
 
     # Lack datasets and check if dataset already known.
     async with lock_datasets as r:
@@ -187,6 +247,7 @@ async def register_dataset(request):
             await save_dataset(r, hash, ds, root)
 
             reply["result"] = "success"
+            archive_ds = True
             await cond_datasets.notify_all()
         else:
             reply["result"] = "Dataset {} invalid.".format(hash)
@@ -195,6 +256,9 @@ async def register_dataset(request):
                     hash, ds
                 )
             )
+
+    if archive_ds:
+        await archive("dataset", request.json)
 
     return response.json(reply)
 
@@ -496,13 +560,12 @@ async def tree(root):
 class Broker:
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, file_lock_time, debug, recover, workers, port):
-
+    # Todo: deprecated. the kwargs are only there to allow deprecated command line options
+    def __init__(self, debug, workers, port, **kwargs):
         self.config = {
-            "file_lock_time": file_lock_time,
             "debug": debug,
-            "recover": recover,
             "port": port,
+            "workers": workers,
         }
 
         self.debug = debug
