@@ -1,22 +1,17 @@
 import json
 import os
-import requests
-import tempfile
 import time
 import pytest
 import redis
 import requests
-import shutil
 import signal
-import threading
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from subprocess import Popen
 
 from comet import Manager
 from chimedb.dataset import get_state, get_dataset, DatasetState, Dataset
 import chimedb.core as chimedb
-from comet.manager import TIMESTAMP_FORMAT
 
 CHIMEDBRC = os.path.join(os.getcwd() + "/.chimedb_test_rc")
 CHIMEDBRC_MESSAGE = "Could not find {}.".format(CHIMEDBRC)
