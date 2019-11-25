@@ -538,8 +538,7 @@ class Broker:
 
         manager = Manager("localhost", self.port)
         try:
-            manager.register_start(self.startup_time, __version__)
-            manager.register_config(self.config)
+            manager.register_start(self.startup_time, __version__, self.config)
         except CometError as exc:
             logger.error(
                 "Comet failed registering its own startup and initial config: {}".format(

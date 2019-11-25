@@ -34,8 +34,7 @@ class Archiver:
 
         manager = Manager(broker_host, broker_port)
         try:
-            manager.register_start(startup_time, __version__)
-            manager.register_config(config)
+            manager.register_start(startup_time, __version__, config)
         except (CometError, ConnectionError) as exc:
             logger.error(
                 "Comet archiver failed registering its startup and initial config: {}".format(

@@ -35,13 +35,21 @@ J = {"meta": "data"}
 now = datetime.utcnow()
 version = "0.1.1"
 
-
+# Todo: deprecated
 @pytest.fixture(scope="session", autouse=True)
 def manager():
     manager = Manager("localhost", PORT)
 
     manager.register_start(now, version)
     manager.register_config(CONFIG)
+    return manager
+
+
+@pytest.fixture(scope="session", autouse=True)
+def manager_new():
+    manager = Manager("localhost", PORT)
+
+    manager.register_start(now, version, CONFIG)
     return manager
 
 
