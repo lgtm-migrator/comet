@@ -13,7 +13,6 @@ import mmh3
 REGISTER_STATE = "/register-state"
 REGISTER_DATASET = "/register-dataset"
 SEND_STATE = "/send-state"
-REGISTER_EXTERNAL_STATE = "/register-external-state"
 STATUS = "/status"
 STATES = "/states"
 DATASETS = "/datasets"

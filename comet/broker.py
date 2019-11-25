@@ -80,21 +80,9 @@ async def get_datasets(request):
     return response.json(reply)
 
 
-@app.route("/register-external-state", methods=["POST"])
-async def external_state(request):
-    """Register an external state that is detached from any dataset."""
-    hash = request.json["hash"]
-    type = request.json["type"]
-    logger.debug("Received external state: {} with hash {}".format(type, hash))
 
-    result = await register_state(request)
 
-    async with lock_external_states as r:
-        await r.execute("hset", "external_state", type, hash)
 
-    # TODO: tell kotekan that this happened
-
-    return result
 
 
 @app.route("/register-state", methods=["POST"])
