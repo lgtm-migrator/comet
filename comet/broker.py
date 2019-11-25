@@ -92,9 +92,7 @@ async def register_state(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
-    logger.debug(
-        "register-state: Received register state request, hash: {}".format(hash)
-    )
+    logger.info("/register-state {}".format(hash))
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
@@ -126,7 +124,7 @@ async def send_state(request):
         type = state["type"]
     else:
         type = None
-    logger.debug("send-state: Received {} state {}".format(type, hash))
+    logger.info("/send-state {} {}".format(type, hash))
     reply = dict()
 
     # Lock states and check if we know this state already.
@@ -160,10 +158,9 @@ async def register_dataset(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
+    logger.info("/register-dataset {}".format(hash))
     ds = request.json["ds"]
-    logger.debug(
-        "register-dataset: Registering new dataset with hash {} : {}".format(hash, ds)
-    )
+
     dataset_valid = await check_dataset(ds)
     reply = dict()
     root = await find_root(hash, ds)
@@ -330,8 +327,8 @@ async def request_state(request):
          http://localhost:12050/request-state
     """
     id = request.json["id"]
+    logger.debug("/request-state {}".format(id))
 
-    logger.debug("request-state: Received request for state with ID {}".format(id))
     reply = dict()
     reply["id"] = id
 
@@ -445,11 +442,8 @@ async def update_datasets(request):
     ds_id = request.json["ds_id"]
     ts = request.json["ts"]
     roots = request.json["roots"]
+    logger.info("/update-datasets {} {} {}.".format(ds_id, ts, roots))
 
-    logger.debug(
-        "update-datasets: Received request for ancestors of dataset {} since timestamp "
-        "{}, roots {}.".format(ds_id, ts, roots)
-    )
     reply = dict()
     reply["datasets"] = dict()
 
