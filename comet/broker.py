@@ -179,7 +179,8 @@ async def register_dataset(request):
     )
     dataset_valid = await check_dataset(ds)
     reply = dict()
-    root = await find_root(hash, ds)
+    if dataset_valid:
+        root = await find_root(hash, ds)
 
     # Lack datasets and check if dataset already known.
     async with lock_datasets as r:
