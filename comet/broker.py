@@ -5,17 +5,18 @@ import datetime
 import json
 import os
 import redis as redis_sync
+import time
 
 from bisect import bisect_left
-from caput import time
+from caput import time as caput_time
+from math import ceil
 from socket import socket
 from threading import Thread
-from time import sleep
 
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
-from concurrent.futures import CancelledError, TimeoutError
+from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
@@ -218,7 +219,7 @@ async def save_dataset(r, hash, ds, root):
     This should be called while a lock on the datasets is held.
     """
     # add a timestamp to the dataset (ms precision)
-    ts = time.datetime_to_unix(datetime.datetime.utcnow())
+    ts = caput_time.datetime_to_unix(datetime.datetime.utcnow())
 
     # get dicts from redis concurrently
     task = asyncio.ensure_future(r.execute("hget", "datasets_of_root", root))
@@ -372,22 +373,41 @@ async def wait_for_dset(id):
         # wait for half of kotekans timeout before we admit we don't have it
         await lock_datasets.release()
         logger.debug("wait_for_ds: Waiting for dataset {}".format(id))
+        wait_time = WAIT_TIME
+        start_wait = time.time()
         while True:
             # did someone send it to us by now?
             async with cond_datasets as r:
                 try:
-                    await asyncio.wait_for(cond_datasets.wait(), WAIT_TIME)
-                except (TimeoutError, CancelledError):
+                    await cond_datasets.wait(wait_time)
+                except TimeoutError:
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
                             WAIT_TIME, id
                         )
                     )
-                    await lock_datasets.acquire()
                     return False
+                except CancelledError:
+                    logger.warning(
+                        "wait_for_ds: Request cancelled while waiting for dataset {}".format(
+                            id
+                        )
+                    )
+                    return False
+
                 if await r.execute("hexists", "datasets", id):
                     logger.debug("wait_for_ds: Found dataset {}".format(id))
                     break
+
+                # we have to continue waiting. Count down on the wait_time.
+                wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+                if wait_time == 0:
+                    logger.warning(
+                        "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
+                            WAIT_TIME, id
+                        )
+                    )
+                    return False
         if not await redis.execute("hexists", "datasets", id):
             logger.warning(
                 "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
@@ -408,22 +428,40 @@ async def wait_for_state(id):
         # wait for half of kotekans timeout before we admit we don't have it
         await lock_states.release()
         logger.debug("wait_for_state: Waiting for state {}".format(id))
+        wait_time = WAIT_TIME
+        start_wait = time.time()
         while True:
             # did someone send it to us by now?
             async with cond_states as r:
                 try:
-                    await asyncio.wait_for(cond_states.wait(), WAIT_TIME)
-                except (TimeoutError, CancelledError):
+                    await cond_states.wait(wait_time)
+                except TimeoutError:
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
                             WAIT_TIME, id
                         )
                     )
-                    await lock_states.acquire()
+                    return False
+                except CancelledError:
+                    logger.warning(
+                        "wait_for_ds: Request cancelled while waiting for state {}".format(
+                            id
+                        )
+                    )
                     return False
                 if await r.execute("hexists", "states", id):
                     logger.debug("wait_for_ds: Found state {}".format(id))
                     break
+
+                # we have to continue waiting. Count down on the wait_time.
+                wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+                if wait_time == 0:
+                    logger.warning(
+                        "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
+                            WAIT_TIME, id
+                        )
+                    )
+                    return False
         # No lock here, cannot just use r
         if not await redis.execute("hexists", "states", id):
             logger.warning(
@@ -475,7 +513,7 @@ async def update_datasets(request):
         return response.json(reply)
 
     if ts is 0:
-        ts = time.datetime_to_unix(datetime.datetime.min)
+        ts = caput_time.datetime_to_unix(datetime.datetime.min)
 
     # If the requested dataset is from a tree not known to the calling
     # instance, send them that whole tree.
@@ -488,7 +526,7 @@ async def update_datasets(request):
         reply["datasets"] = await tree(root)
 
     # add a timestamp to the result before gathering update
-    reply["ts"] = time.datetime_to_unix(datetime.datetime.utcnow())
+    reply["ts"] = caput_time.datetime_to_unix(datetime.datetime.utcnow())
     reply["datasets"].update(await gather_update(ts, roots))
 
     reply["result"] = "success"
@@ -546,7 +584,7 @@ class Broker:
 
         # Wait until the port has been set (meaning comet is available)
         while not self.port:
-            sleep(1)
+            time.sleep(1)
 
         manager = Manager("localhost", self.port)
         try:

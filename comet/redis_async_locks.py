@@ -1,8 +1,9 @@
 """Condition variable using redis."""
-import logging
-
 import asyncio
 import aioredis
+import logging
+
+from concurrent.futures import CancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,7 @@ class Lock:
             opened by the lock itself, but can be useful to set to False for
             better connection management.
         """
+        logger.debug(f"Releasing lock {self.name}")
 
         # Check we have an active connection
         if (
@@ -304,16 +306,47 @@ end
         # Use the internal redis connection
         await self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
 
-    async def wait(self):
-        """Wait for the condition variable to signal."""
+    async def wait(self, timeout=0):
+        """
+        Wait for the condition variable to signal.
+
+        Will cancel waiting and raise a TimeoutError after <timeout> seconds. If
+        timeout is `0`, it will never cancel waiting.
+
+        Guarantees to hold the lock when it returns. For this some of the coroutines are
+        shielded. I.e. the calling client could cancel the request. If the code calling
+        this holds the lock, it expects the lock to be still held when wait() returns,
+        otherwise it might try to release the lock without holding it.
+
+        Parameters
+        ----------
+        timeout : int
+            Timeout in seconds.
+
+        Raises
+        ------
+        TimeoutError
+            If there was no signal after the number of seconds specified by timeout have
+            passed.
+        ValueError
+            If timeout is not an int.
+        """
 
         if not await self.locked():
             raise LockError(
                 f"Failure waiting condition {self.name}: lock not acquired at start."
             )
 
+        if not isinstance(timeout, int):
+            raise ValueError(
+                "Parameter timeout is of type {} (expected int).".format(type(timeout))
+            )
+
         # Save a reference to the connection so that we can preserve it through the release/acquire cycle
         r = self.lock._redis_conn
+
+        if timeout < 0:
+            raise TimeoutError
 
         # register as a waiting process
         #
@@ -324,7 +357,13 @@ end
         await r.execute("hincrby", "WAITING", self.condname, 1)
 
         # release the lock while waiting
-        await self.lock.release(close=False)
+        cancelled = None
+        try:
+            # Shield against cancellation
+            await asyncio.shield(self.lock.release(close=False))
+        except CancelledError as err:
+            # In case of cancellation, continue but remember cancellation
+            cancelled = err
 
         # Wait for notification
         #
@@ -333,13 +372,29 @@ end
         # while(True):
         #     if name:
         #         name.pop()
-        await r.execute("blpop", self.condname, 0)
+        timed_out = False
+        if not cancelled:
+            try:
+                # allow this to be cancelled, but catch to reacquire lock etc
+                ret = await r.execute("blpop", self.condname, timeout)
+            except CancelledError as err:
+                # In case of cancellation, continue but remember cancellation
+                cancelled = err
+            else:
+                if ret is None:
+                    timed_out = True
 
         # reacquire the lock
-        await self.lock.acquire(r)
+        try:
+            # shield against cancellation
+            await asyncio.shield(self.lock.acquire(r))
+        except CancelledError as err:
+            # In case of cancellation, continue but remember cancellation
+            cancelled = err
 
         # Decrement number of waiting processes and reset notification.
-        # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if WAITING/KEY[0] is zero:
+        # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if
+        # WAITING/KEY[0] is zero:
         #
         # PSEUDOCODE:
         #
@@ -351,4 +406,11 @@ end
             redis.call('lpush', KEYS[1], "1")
         end
         """
-        await r.execute("eval", redis_reset_cond, 1, self.condname)
+        # shield against cancellation, but don't catch (we are done after this)
+        await asyncio.shield(r.execute("eval", redis_reset_cond, 1, self.condname))
+
+        # Now we can tell the caller about everything that went wrong
+        if timed_out:
+            raise TimeoutError
+        if cancelled:
+            raise cancelled
