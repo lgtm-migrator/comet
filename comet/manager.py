@@ -385,7 +385,7 @@ class Manager:
 
     @staticmethod
     def _make_hash(data):
-        return mmh3.hash_bytes(json.dumps(data, sort_keys=True)).hex()
+        return "%032x" % mmh3.hash128(json.dumps(data, sort_keys=True), seed=1420)
 
     def get_state(self, type=None, dataset_id=None):
         """

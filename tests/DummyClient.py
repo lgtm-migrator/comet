@@ -197,7 +197,7 @@ class DummyClient:
 
     @staticmethod
     def _make_hash(data):
-        return mmh3.hash_bytes(json.dumps(data, sort_keys=True)).hex()
+        return "%032x" % mmh3.hash128(json.dumps(data, sort_keys=True), seed=1420)
 
     def _send(self, endpoint, data, rtype="post"):
         command = getattr(requests, rtype)
