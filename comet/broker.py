@@ -27,8 +27,8 @@ DEFAULT_PORT = 12050
 REDIS_SERVER = ("localhost", 6379)
 
 app = Sanic(__name__)
-app.config.REQUEST_TIMEOUT = 600
-app.config.RESPONSE_TIMEOUT = 600
+app.config.REQUEST_TIMEOUT = 120
+app.config.RESPONSE_TIMEOUT = 120
 
 
 @app.route("/status", methods=["GET"])
