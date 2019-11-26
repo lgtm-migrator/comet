@@ -644,7 +644,7 @@ async def close_locks():
 async def _init_redis_async(_, loop):
     global redis
     redis = await aioredis.create_pool(
-        REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=200
+        REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=10000
     )
     await create_locks()
 
