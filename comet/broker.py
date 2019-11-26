@@ -3,7 +3,6 @@ import aioredis
 import asyncio
 import datetime
 import json
-import os
 import redis as redis_sync
 import time
 
@@ -12,11 +11,12 @@ from caput import time as caput_time
 from math import ceil
 from socket import socket
 from threading import Thread
+from time import sleep
 
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, TimeoutError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
@@ -82,21 +82,64 @@ async def get_datasets(request):
     return response.json(reply)
 
 
-@app.route("/register-external-state", methods=["POST"])
-async def external_state(request):
-    """Register an external state that is detached from any dataset."""
-    hash = request.json["hash"]
-    type = request.json["type"]
-    logger.debug("Received external state: {} with hash {}".format(type, hash))
+async def archive(data_type, json_data):
+    """
+    Add a state or dataset to the list for the archiver.
 
-    result = await register_state(request)
+    Parameters
+    ----------
+    data_type : str
+        One of "dataset" or "state".
+    json_data : dict
+        Should contain the field `hash` (`str`). Optionally it can contain the field
+        `time` (`str`), otherwise the broker will use the current time. Should have the
+         format `comet.manager.TIMESTAMP_FORMAT`.
 
-    async with lock_external_states as r:
-        await r.execute("hset", "external_state", type, hash)
+    Raises
+    ------
+    CometError
+        If the parameters are not as described above.
+    """
+    logger.debug("Passing {} to archiver: {}".format(data_type, json_data))
 
-    # TODO: tell kotekan that this happened
+    # currently known types to be used here
+    TYPES = ["dataset", "state"]
 
-    return result
+    # check parameters
+    if not isinstance(data_type, str):
+        raise CometError(
+            "Expected string for type to send to archiver (was {}).",
+            format(type(data_type)),
+        )
+    if data_type not in TYPES:
+        raise CometError(
+            "Expected one of {} for type to send to archiver (was {}).",
+            format(TYPES, data_type),
+        )
+    if "hash" not in json_data:
+        raise CometError("No hash found in json_data: {}".format(json_data))
+    if not isinstance(json_data["hash"], str):
+        raise CometError(
+            "Expected type str for hash in json_data (was {})".format(
+                type(json_data["hash"])
+            )
+        )
+    if "time" not in json_data:
+        json_data["time"] = datetime.datetime.utcnow().strftime(TIMESTAMP_FORMAT)
+    else:
+        if not isinstance(json_data["time"], str):
+            raise CometError(
+                "Expected type str for time in json_data (was {})".format(
+                    type(json_data["time"])
+                )
+            )
+
+    # push it into list for archiver
+    redis.execute(
+        "lpush",
+        "archive_{}".format(data_type),
+        json.dumps({"hash": json_data["hash"], "time": json_data["time"]}),
+    )
 
 
 @app.route("/register-state", methods=["POST"])
@@ -106,9 +149,7 @@ async def register_state(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
-    logger.debug(
-        "register-state: Received register state request, hash: {}".format(hash)
-    )
+    logger.info("/register-state {}".format(hash))
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
@@ -150,8 +191,9 @@ async def send_state(request):
         type = state["type"]
     else:
         type = None
-    logger.debug("send-state: Received {} state {}".format(type, hash))
+    logger.info("/send-state {} {}".format(type, hash))
     reply = dict()
+    archive_state = False
 
     # Lock states and check if we know this state already.
     async with lock_states as r:
@@ -159,6 +201,8 @@ async def send_state(request):
         if found is not None:
             # if we know it already, does it differ?
             if found != state:
+                # this string needs to be deserialized, contains a state
+                found = json.loads(found)
                 reply["result"] = (
                     "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
@@ -169,11 +213,14 @@ async def send_state(request):
         else:
             await r.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
+            archive_state = True
             await cond_states.notify_all()
 
     # Remove it from the set of requested states (if it's in there.)
     await redis.execute("hdel", "requested_states", hash)
 
+    if archive_state:
+        await archive("state", request.json)
     return response.json(reply)
 
 
@@ -184,10 +231,9 @@ async def register_dataset(request):
     This should only ever be called by kotekan's datasetManager.
     """
     hash = request.json["hash"]
+    logger.info("/register-dataset {}".format(hash))
     ds = request.json["ds"]
-    logger.debug(
-        "register-dataset: Registering new dataset with hash {} : {}".format(hash, ds)
-    )
+
     dataset_valid = await check_dataset(ds)
     reply = dict()
     if dataset_valid:
@@ -213,6 +259,7 @@ async def register_dataset(request):
             await save_dataset(r, hash, ds, root)
 
             reply["result"] = "success"
+            archive_ds = True
             await cond_datasets.notify_all()
         else:
             reply["result"] = "Dataset {} invalid.".format(hash)
@@ -221,6 +268,9 @@ async def register_dataset(request):
                     hash, ds
                 )
             )
+
+    if archive_ds:
+        await archive("dataset", request.json)
 
     return response.json(reply)
 
@@ -355,8 +405,8 @@ async def request_state(request):
          http://localhost:12050/request-state
     """
     id = request.json["id"]
+    logger.debug("/request-state {}".format(id))
 
-    logger.debug("request-state: Received request for state with ID {}".format(id))
     reply = dict()
     reply["id"] = id
 
@@ -498,11 +548,8 @@ async def update_datasets(request):
     ds_id = request.json["ds_id"]
     ts = request.json["ts"]
     roots = request.json["roots"]
+    logger.info("/update-datasets {} {} {}.".format(ds_id, ts, roots))
 
-    logger.debug(
-        "update-datasets: Received request for ancestors of dataset {} since timestamp "
-        "{}, roots {}.".format(ds_id, ts, roots)
-    )
     reply = dict()
     reply["datasets"] = dict()
 
@@ -553,13 +600,12 @@ async def tree(root):
 class Broker:
     """Main class to run the comet dataset broker."""
 
-    def __init__(self, file_lock_time, debug, recover, workers, port):
-
+    # Todo: deprecated. the kwargs are only there to allow deprecated command line options
+    def __init__(self, debug, workers, port, **kwargs):
         self.config = {
-            "file_lock_time": file_lock_time,
             "debug": debug,
-            "recover": recover,
             "port": port,
+            "workers": workers,
         }
 
         self.debug = debug
@@ -598,8 +644,7 @@ class Broker:
 
         manager = Manager("localhost", self.port)
         try:
-            manager.register_start(self.startup_time, __version__)
-            manager.register_config(self.config)
+            manager.register_start(self.startup_time, __version__, self.config)
         except CometError as exc:
             logger.error(
                 "Comet failed registering its own startup and initial config: {}".format(
