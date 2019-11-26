@@ -22,6 +22,7 @@ from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
 from .redis_async_locks import Lock, Condition, LockError
 
+REQUESTED_STATE_TIMEOUT = 35
 WAIT_TIME = 40
 DEFAULT_PORT = 12050
 REDIS_SERVER = ("localhost", 6379)
@@ -115,11 +116,21 @@ async def register_state(request):
         state = await r.execute("hget", "states", hash)
         if state is None:
             # we don't know this state, did we request it already?
-            if await r.execute("sismember", "requested_states", hash):
-                return response.json(reply)
+            # After REQUEST_STATE_TIMEOUT we request it again.
+            request_time = await r.execute("hget", "requested_states", hash)
+            if request_time:
+                request_time = float(request_time)
+                if request_time > time.time() - REQUESTED_STATE_TIMEOUT:
+                    return response.json(reply)
+                else:
+                    logger.debug(
+                        "register-state: {} requested {:.2f}s ago, asking again....".format(
+                            hash, time.time() - request_time
+                        )
+                    )
 
             # otherwise, request it now
-            await r.execute("sadd", "requested_states", hash)
+            await r.execute("hset", "requested_states", hash, time.time())
             reply["request"] = "get_state"
             reply["hash"] = hash
             logger.debug("register-state: Asking for state, hash: {}".format(hash))
@@ -161,7 +172,7 @@ async def send_state(request):
             await cond_states.notify_all()
 
     # Remove it from the set of requested states (if it's in there.)
-    await redis.execute("srem", "requested_states", hash)
+    await redis.execute("hdel", "requested_states", hash)
 
     return response.json(reply)
 
@@ -556,21 +567,28 @@ class Broker:
         self.n_workers = workers
         self.port = None
 
-    def _flush_redis(self):
+    @staticmethod
+    def _flush_redis():
         """
         Flush from redis what we don't want to keep on start.
 
         At the moment this only deletes members of the set "requested_states".
         """
         r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
-        hash = r.spop("requested_states")
-        while hash:
+        hashes = r.hkeys("requested_states")
+        for state_hash in hashes:
             logger.warning(
                 "Found requested state in redis on startup: {}\nFlushing...".format(
-                    hash.decode()
+                    state_hash.decode()
                 )
             )
-            hash = r.spop("requested_states")
+            if r.hdel("requested_states", state_hash) != 1:
+                logger.error(
+                    "Failure deleting {} from requested states in redis on startup.".format(
+                        state_hash.decode()
+                    )
+                )
+                exit(1)
 
     def _wait_and_register(self):
 
