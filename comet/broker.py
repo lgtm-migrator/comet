@@ -368,11 +368,8 @@ async def request_state(request):
 async def wait_for_dset(id):
     """Wait until the given dataset is present."""
     found = True
-    r = await lock_datasets.acquire()
-
-    if not await r.execute("hexists", "datasets", id):
+    if not await redis.execute("hexists", "datasets", id):
         # wait for half of kotekans timeout before we admit we don't have it
-        await lock_datasets.release()
         logger.debug("wait_for_ds: Waiting for dataset {}".format(id))
         wait_time = WAIT_TIME
         start_wait = time.time()
@@ -416,18 +413,14 @@ async def wait_for_dset(id):
                 )
             )
             found = False
-    else:
-        await lock_datasets.release()
     return found
 
 
 async def wait_for_state(id):
     """Wait until the given state is present."""
     found = True
-    r = await lock_states.acquire()
-    if not await r.execute("hexists", "states", id):
+    if not await redis.execute("hexists", "states", id):
         # wait for half of kotekans timeout before we admit we don't have it
-        await lock_states.release()
         logger.debug("wait_for_state: Waiting for state {}".format(id))
         wait_time = WAIT_TIME
         start_wait = time.time()
@@ -471,8 +464,6 @@ async def wait_for_state(id):
                 )
             )
             found = False
-    else:
-        await lock_states.release()
     return found
 
 
