@@ -200,12 +200,14 @@ async def send_state(request):
     async with lock_states as r:
         found = await r.execute("hget", "states", hash)
         if found is not None:
+            # this string needs to be deserialized, contains a state
+            found = json.loads(found)
+
             # if we know it already, does it differ?
             if found != state:
-                # this string needs to be deserialized, contains a state
-                found = json.loads(found)
                 reply["result"] = (
-                    "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
+                    "error: hash collision ({})\nTrying to register the following "
+                    "dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
                 )
                 logger.warning("send-state: {}".format(reply["result"]))
@@ -256,7 +258,7 @@ async def register_dataset(request):
                 logger.warning("send-state: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
-        elif dataset_valid:
+        elif dataset_valid and root is not None:
             # save the dataset
             await save_dataset(r, hash, ds, root)
 
@@ -699,11 +701,10 @@ class Broker:
 
 async def create_locks():
     """Create all redis locks."""
-    global lock_states, lock_datasets, lock_external_states, cond_states, cond_datasets
+    global lock_states, lock_datasets, cond_states, cond_datasets
 
     lock_states = await Lock.create(redis, "states")
     lock_datasets = await Lock.create(redis, "datasets")
-    lock_external_states = await Lock.create(redis, "external_datasets")
     cond_states = await Condition.create(lock_states, "states")
     cond_datasets = await Condition.create(lock_datasets, "datasets")
 
@@ -728,10 +729,6 @@ async def close_locks():
         await lock_datasets.close()
     except LockError:
         pass
-    try:
-        await lock_external_states.close()
-    except LockError:
-        return
 
 
 # Create the Redis connection pool, use sanic to start it so that it
