@@ -464,6 +464,8 @@ async def wait_for_dset(id):
 
                 # we have to continue waiting. Count down on the wait_time.
                 wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+
+                # 0 means "no timeout" we don't want that to happen by accident
                 if wait_time == 0:
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
@@ -514,6 +516,8 @@ async def wait_for_state(id):
 
                 # we have to continue waiting. Count down on the wait_time.
                 wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+
+                # 0 means "no timeout" we don't want that to happen by accident
                 if wait_time == 0:
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
