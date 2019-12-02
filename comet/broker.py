@@ -100,7 +100,7 @@ async def archive(data_type, json_data):
     CometError
         If the parameters are not as described above.
     """
-    logger.debug("Passing {} to archiver: {}".format(data_type, json_data))
+    logger.debug("Passing {} to archiver.".format(data_type))
 
     # currently known types to be used here
     TYPES = ["dataset", "state"]
