@@ -701,11 +701,10 @@ class Broker:
 
 async def create_locks():
     """Create all redis locks."""
-    global lock_states, lock_datasets, lock_external_states, cond_states, cond_datasets
+    global lock_states, lock_datasets, cond_states, cond_datasets
 
     lock_states = await Lock.create(redis, "states")
     lock_datasets = await Lock.create(redis, "datasets")
-    lock_external_states = await Lock.create(redis, "external_datasets")
     cond_states = await Condition.create(lock_states, "states")
     cond_datasets = await Condition.create(lock_datasets, "datasets")
 
@@ -730,10 +729,6 @@ async def close_locks():
         await lock_datasets.close()
     except LockError:
         pass
-    try:
-        await lock_external_states.close()
-    except LockError:
-        return
 
 
 # Create the Redis connection pool, use sanic to start it so that it
