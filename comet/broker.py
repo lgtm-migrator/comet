@@ -257,7 +257,7 @@ async def register_dataset(request):
                 logger.warning("send-state: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
-        elif dataset_valid:
+        elif dataset_valid and root is not None:
             # save the dataset
             await save_dataset(r, hash, ds, root)
 
