@@ -3,6 +3,7 @@ import aioredis
 import asyncio
 import datetime
 import json
+import logging
 import redis as redis_sync
 import time
 
@@ -687,7 +688,7 @@ class Broker:
             workers=self.n_workers,
             return_asyncio_server=True,
             access_log=self.debug,
-            debug=self.debug,
+            debug=False,
             **server_kwargs
         )
 
@@ -736,6 +737,8 @@ async def close_locks():
 # ends up in the same event loop
 # At the same time create the locks that we will need
 async def _init_redis_async(_, loop):
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
     global redis
     redis = await aioredis.create_pool(
         REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=10000
