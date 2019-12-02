@@ -200,12 +200,14 @@ async def send_state(request):
     async with lock_states as r:
         found = await r.execute("hget", "states", hash)
         if found is not None:
+            # this string needs to be deserialized, contains a state
+            found = json.loads(found)
+
             # if we know it already, does it differ?
             if found != state:
-                # this string needs to be deserialized, contains a state
-                found = json.loads(found)
                 reply["result"] = (
-                    "error: hash collision ({})\nTrying to register the following dataset state:\n{},\nbut a different state is know to "
+                    "error: hash collision ({})\nTrying to register the following "
+                    "dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
                 )
                 logger.warning("send-state: {}".format(reply["result"]))
