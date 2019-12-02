@@ -16,7 +16,7 @@ from time import sleep
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
-from concurrent.futures import CancelledError, TimeoutError
+from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT

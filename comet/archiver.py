@@ -205,6 +205,14 @@ class Archiver:
             )
             self._pushback("archive_dataset", data)
             return
+        except db.Dataset.DoesNotExist:
+            logger.error(
+                "Failure archiving dataset (DB doesn't know the referenced base dataset): {}".format(
+                    data
+                )
+            )
+            self._pushback("archive_dataset", data)
+            return
 
     def __del__(self):
         """Stop the archiver."""
