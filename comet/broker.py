@@ -641,8 +641,9 @@ class Broker:
     def _wait_and_register(self):
 
         # Wait until the port has been set (meaning comet is available)
+        # TODO this should be 1 again once we have a semaphore on worker start
         while not self.port:
-            time.sleep(1)
+            time.sleep(6)
 
         manager = Manager("localhost", self.port)
         try:
@@ -744,6 +745,10 @@ async def _init_redis_async(_, loop):
         REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=10000
     )
     await create_locks()
+
+    # TODO this is to make sure no broker creates the lock after it got acquired.
+    #  Replace with a semaphore that waits for all other workers.
+    await asyncio.sleep(5)
 
 
 async def _close_redis_async(_, loop):
