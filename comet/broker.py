@@ -172,11 +172,10 @@ async def register_state(request):
                     )
 
             # otherwise, request it now
-            await r.execute("hset", "requested_states", hash, time.time())
             reply["request"] = "get_state"
             reply["hash"] = hash
             logger.debug("register-state: Asking for state, hash: {}".format(hash))
-
+            await r.execute("hset", "requested_states", hash, time.time())
     return response.json(reply)
 
 
