@@ -444,9 +444,7 @@ end
 
         # Decrement number of waiting processes by one.
         # shield against cancellation, but don't catch (we are done after this)
-        task = asyncio.ensure_future(
-            r.execute("hincrby", 'WAITING', self.condname, -1)
-        )
+        task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname, -1))
         try:
             await asyncio.shield(task)
         except asyncio.CancelledError:
