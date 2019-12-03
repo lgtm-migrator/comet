@@ -117,7 +117,9 @@ async def archive(data_type, json_data):
         )
     if "hash" not in json_data:
         raise CometError("No hash found in json_data: {}".format(json_data))
-    if not isinstance(json_data["hash"], str) and not isinstance(json_data["hash"], int):
+    if not isinstance(json_data["hash"], str) and not isinstance(
+        json_data["hash"], int
+    ):
         raise CometError(
             "Expected type str for hash in json_data (was {})".format(
                 type(json_data["hash"])
@@ -285,7 +287,7 @@ async def register_dataset(request):
                     "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
                     "the broker with the same hash:\n{}".format(hash, ds, found)
                 )
-                logger.warning("send-state: {}".format(reply["result"]))
+                logger.warning("register-dataset: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
         elif dataset_valid and root is not None:
