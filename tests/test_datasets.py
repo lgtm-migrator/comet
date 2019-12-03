@@ -62,9 +62,8 @@ def broker():
 
     broker = Popen(["comet", "--debug", "1", "-p", PORT])
 
-    # TODO: remove the extra 5s once the startup waiting of sanic workers is replaced
-    # with a semaphore
-    time.sleep(3 + 5)
+    # wait for broker start
+    time.sleep(3)
     yield
     os.kill(broker.pid, signal.SIGINT)
 
@@ -208,7 +207,7 @@ def test_archiver_pushback(archiver):
     r.hset(
         "states", "test_state", json.dumps({"state": "test_state", "type": "bs_state"})
     )
-    time.sleep(0.1)
+    time.sleep(0.2)
     assert r.llen("archive_dataset") == 0
     assert r.llen("archive_state") == 0
 

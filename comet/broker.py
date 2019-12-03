@@ -695,9 +695,8 @@ class Broker:
     def _wait_and_register(self):
 
         # Wait until the port has been set (meaning comet is available)
-        # TODO this should be 1 again once we have a semaphore on worker start
         while not self.port:
-            time.sleep(6)
+            time.sleep(1)
 
         manager = Manager("localhost", self.port)
         try:
@@ -738,6 +737,11 @@ class Broker:
             server_kwargs["host"] = "0.0.0.0"
             server_kwargs["port"] = port
         self.port = port
+
+        # create a semaphore that the workers wait on on start
+        r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
+        r.set("semaphore_worker_start_counter", self.n_workers)
+        r.set("semaphore_worker_start_total", self.n_workers)
 
         app.run(
             workers=self.n_workers,
@@ -795,9 +799,24 @@ async def _init_redis_async(_, loop):
     )
     await create_locks()
 
-    # TODO this is to make sure no broker creates the lock after it got acquired.
-    #  Replace with a semaphore that waits for all other workers.
-    await asyncio.sleep(5)
+    # Wait for semaphore. This is to make sure no broker creates the lock after it got acquired.
+    redis_wait_semaphore = """
+    if redis.call('INCRBY', KEYS[1], -1) == 0 then
+        local n_workers = tonumber(redis.call('GET', KEYS[3]))
+        for i=1,n_workers do
+            redis.call('RPUSH', KEYS[2], '1')
+        end
+    end
+    """
+    await redis.execute(
+        "eval",
+        redis_wait_semaphore,
+        3,
+        "semaphore_worker_start_counter",
+        "semaphore_worker_start",
+        "semaphore_worker_start_total",
+    )
+    await redis.execute("BRPOP", "semaphore_worker_start", 0)
 
 
 async def _close_redis_async(_, loop):
