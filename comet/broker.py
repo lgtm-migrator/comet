@@ -38,7 +38,8 @@ request_thread_id = contextvars.ContextVar("request_thread_id", default=0)
 
 class RequestAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
-        return '[%s] %s' % (self.extra['request_thread_id'], msg), kwargs
+        thread_id = kwargs.pop('request_thread_id', self.extra['request_thread_id'])
+        return '[%s] %s' % (thread_id, msg), kwargs
 
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
@@ -58,7 +59,7 @@ async def status(request):
     curl -X GET http://localhost:12050/status
     """
     request_thread_id.set(random.getrandbits(40))
-    request_adapter.debug("status: Received status request", {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("status: Received status request", request_thread_id = request_thread_id.get())
     return response.json({"running": True, "result": "success"})
 
 
@@ -73,12 +74,12 @@ async def get_states(request):
     """
     request_thread_id.set(random.getrandbits(40))
 
-    request_adapter.debug("status: Received states request", {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("status: Received states request", request_thread_id = request_thread_id.get())
 
     states = await redis.execute("hkeys", "states")
     reply = {"result": "success", "states": states}
 
-    request_adapter.debug("states: {}".format(states), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("states: {}".format(states), request_thread_id = request_thread_id.get())
     return response.json(reply)
 
 
@@ -92,12 +93,12 @@ async def get_datasets(request):
     curl -X GET http://localhost:12050/datasets
     """
     request_thread_id.set(random.getrandbits(40))
-    request_adapter.debug("status: Received datasets request", {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("status: Received datasets request", request_thread_id = request_thread_id.get())
 
     datasets = await redis.execute("hkeys", "datasets")
     reply = {"result": "success", "datasets": datasets}
 
-    request_adapter.debug("datasets: {}".format(datasets), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("datasets: {}".format(datasets), request_thread_id = request_thread_id.get())
     return response.json(reply)
 
 
@@ -169,7 +170,7 @@ async def register_state(request):
     """
     request_thread_id.set(random.getrandbits(40))
     hash = request.json["hash"]
-    request_adapter.info("/register-state {}".format(hash), {'request_thread_id': request_thread_id.get()})
+    request_adapter.info("/register-state {}".format(hash), request_thread_id = request_thread_id.get())
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
@@ -188,13 +189,13 @@ async def register_state(request):
                         "register-state: {} requested {:.2f}s ago, asking again....".format(
                             hash, time.time() - request_time
                         )
-                    , {'request_thread_id': request_thread_id.get()})
+                    , request_thread_id = request_thread_id.get())
 
             # otherwise, request it now
             await r.execute("hset", "requested_states", hash, time.time())
             reply["request"] = "get_state"
             reply["hash"] = hash
-            request_adapter.debug("register-state: Asking for state, hash: {}".format(hash), {'request_thread_id': request_thread_id.get()})
+            request_adapter.debug("register-state: Asking for state, hash: {}".format(hash), request_thread_id = request_thread_id.get())
 
     return response.json(reply)
 
@@ -212,7 +213,7 @@ async def send_state(request):
         type = state["type"]
     else:
         type = None
-    request_adapter.info("/send-state {} {}".format(type, hash), {'request_thread_id': request_thread_id.get()})
+    request_adapter.info("/send-state {} {}".format(type, hash), request_thread_id = request_thread_id.get())
     reply = dict()
     archive_state = False
 
@@ -230,7 +231,7 @@ async def send_state(request):
                     "dataset state:\n{},\nbut a different state is know to "
                     "the broker with the same hash:\n{}".format(hash, state, found)
                 )
-                request_adapter.warning("send-state: {}".format(reply["result"]), {'request_thread_id': request_thread_id.get()})
+                request_adapter.warning("send-state: {}".format(reply["result"]), request_thread_id = request_thread_id.get())
             else:
                 reply["result"] = "success"
         else:
@@ -255,7 +256,7 @@ async def register_dataset(request):
     """
     request_thread_id.set(random.getrandbits(40))
     hash = request.json["hash"]
-    request_adapter.info("/register-dataset {}".format(hash), {'request_thread_id': request_thread_id.get()})
+    request_adapter.info("/register-dataset {}".format(hash), request_thread_id = request_thread_id.get())
     ds = request.json["ds"]
 
     dataset_valid = await check_dataset(ds)
@@ -276,7 +277,7 @@ async def register_dataset(request):
                     "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
                     "the broker with the same hash:\n{}".format(hash, ds, found)
                 )
-                request_adapter.warning("send-state: {}".format(reply["result"]), {'request_thread_id': request_thread_id.get()})
+                request_adapter.warning("send-state: {}".format(reply["result"]), request_thread_id = request_thread_id.get())
             else:
                 reply["result"] = "success"
         elif dataset_valid and root is not None:
@@ -292,7 +293,7 @@ async def register_dataset(request):
                 "register-dataset: Received invalid dataset with hash {} : {}".format(
                     hash, ds
                 )
-            , {'request_thread_id': request_thread_id.get()})
+            , request_thread_id = request_thread_id.get())
 
     if archive_ds:
         await archive("dataset", request.json)
@@ -431,24 +432,24 @@ async def request_state(request):
     """
     request_thread_id.set(random.getrandbits(40))
     id = request.json["id"]
-    request_adapter.debug("/request-state {}".format(id), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("/request-state {}".format(id), request_thread_id = request_thread_id.get())
 
     reply = dict()
     reply["id"] = id
 
     # Do we know this state ID?
-    request_adapter.debug("request-state: waiting for state ID {}".format(id), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("request-state: waiting for state ID {}".format(id), request_thread_id = request_thread_id.get())
     found = await wait_for_state(id)
     if not found:
         reply["result"] = "state ID {} unknown to broker.".format(id)
-        request_adapter.info("request-state: State {} unknown to broker".format(id), {'request_thread_id': request_thread_id.get()})
+        request_adapter.info("request-state: State {} unknown to broker".format(id), request_thread_id = request_thread_id.get())
         return response.json(reply)
-    request_adapter.debug("request-state: found state ID {}".format(id), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("request-state: found state ID {}".format(id), request_thread_id = request_thread_id.get())
 
     reply["state"] = json.loads(await redis.execute("hget", "states", id))
 
     reply["result"] = "success"
-    request_adapter.debug("request-state: Replying with state {}".format(id), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("request-state: Replying with state {}".format(id), request_thread_id = request_thread_id.get())
     return response.json(reply)
 
 
@@ -579,7 +580,7 @@ async def update_datasets(request):
     ds_id = request.json["ds_id"]
     ts = request.json["ts"]
     roots = request.json["roots"]
-    request_adapter.info("/update-datasets {} {} {}.".format(ds_id, ts, roots), {'request_thread_id': request_thread_id.get()})
+    request_adapter.info("/update-datasets {} {} {}.".format(ds_id, ts, roots), request_thread_id = request_thread_id.get())
 
     reply = dict()
     reply["datasets"] = dict()
@@ -590,7 +591,7 @@ async def update_datasets(request):
         reply["result"] = "update-datasets: Dataset ID {} unknown to broker.".format(
             ds_id
         )
-        request_adapter.info("update-datasets: Dataset ID {} unknown.".format(ds_id), {'request_thread_id': request_thread_id.get()})
+        request_adapter.info("update-datasets: Dataset ID {} unknown.".format(ds_id), request_thread_id = request_thread_id.get())
         return response.json(reply)
 
     if ts is 0:
@@ -601,7 +602,7 @@ async def update_datasets(request):
     ds = json.loads(await redis.execute("hget", "datasets", ds_id))
     root = await find_root(ds_id, ds)
     if root is None:
-        request_adapter.error("update-datasets: Root of dataset {} not found.".format(ds_id), {'request_thread_id': request_thread_id.get()})
+        request_adapter.error("update-datasets: Root of dataset {} not found.".format(ds_id), request_thread_id = request_thread_id.get())
         reply["result"] = "Root of dataset {} not found.".format(ds_id)
     if root not in roots:
         reply["datasets"] = await tree(root)
@@ -611,7 +612,7 @@ async def update_datasets(request):
     reply["datasets"].update(await gather_update(ts, roots))
 
     reply["result"] = "success"
-    request_adapter.debug("update-datasets: Answering with {}.".format(reply), {'request_thread_id': request_thread_id.get()})
+    request_adapter.debug("update-datasets: Answering with {}.".format(reply), request_thread_id = request_thread_id.get())
     return response.json(reply)
 
 
