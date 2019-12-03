@@ -193,7 +193,7 @@ class Lock:
         task = asyncio.ensure_future(self.acquire())
         try:
             return await asyncio.shield(task)
-        except CancelledError:
+        except asyncio.CancelledError:
             logger.debug(
                 "Acquisition of lock {} cancelled. Releasing...".format(self.name)
             )
