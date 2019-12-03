@@ -12,12 +12,10 @@ from caput import time as caput_time
 from math import ceil
 from socket import socket
 from threading import Thread
-from time import sleep
 
 from sanic import Sanic
 from sanic import response
 from sanic.log import logger
-from concurrent.futures import CancelledError
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
@@ -195,6 +193,10 @@ async def send_state(request):
     reply = dict()
     archive_state = False
 
+    # In case the shielded part of this endpoint gets cancelled, we ignore it but
+    # re-raise the CancelledError in the end
+    cancelled = None
+
     # Lock states and check if we know this state already.
     async with lock_states as r:
         found = await r.execute("hget", "states", hash)
@@ -216,13 +218,38 @@ async def send_state(request):
             await r.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
             archive_state = True
-            await cond_states.notify_all()
+            # From here on, cancellations (e.g. by the client) are ignored, because the
+            # state is in redis already.
+            task = asyncio.ensure_future(cond_states.notify_all())
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                logger.info(
+                    "/send-state {}: Notification got cancelled. Ignoring...".format(
+                        hash
+                    )
+                )
+                cancelled = err
+                # Wait for the shielded task before releasing lock
+                await task
 
     # Remove it from the set of requested states (if it's in there.)
-    await redis.execute("hdel", "requested_states", hash)
+    try:
+        await asyncio.shield(redis.execute("hdel", "requested_states", hash))
+    except asyncio.CancelledError as err:
+        logger.info(
+            "/send-state {}: Cancelled while removing requested state. Ignoring...".format(
+                hash
+            )
+        )
+        cancelled = err
 
     if archive_state:
-        await archive("state", request.json)
+        await asyncio.shield(archive("state", request.json))
+
+    # Done cleaning up, re-raise if this request got cancelled.
+    if cancelled:
+        raise cancelled
     return response.json(reply)
 
 
@@ -241,6 +268,10 @@ async def register_dataset(request):
     if dataset_valid:
         root = await find_root(hash, ds)
     archive_ds = False
+
+    # In case the shielded part of this endpoint gets cancelled, we ignore it but
+    # re-raise the CancelledError in the end
+    cancelled = None
 
     # Lack datasets and check if dataset already known.
     async with lock_datasets as r:
@@ -263,7 +294,19 @@ async def register_dataset(request):
 
             reply["result"] = "success"
             archive_ds = True
-            await cond_datasets.notify_all()
+
+            # From here on ignore cancellations and finish anyways
+            task = asyncio.ensure_future(cond_datasets.notify_all())
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                logger.info(
+                    "/register-dataset {}: Notification got cancelled. Ignoring...".format(
+                        hash
+                    )
+                )
+                cancelled = err
+                await task
         else:
             reply["result"] = "Dataset {} invalid.".format(hash)
             logger.debug(
@@ -273,7 +316,11 @@ async def register_dataset(request):
             )
 
     if archive_ds:
-        await archive("dataset", request.json)
+        await asyncio.shield(archive("dataset", request.json))
+
+    # Done cleaning up, re-raise if this request got cancelled.
+    if cancelled:
+        raise cancelled
 
     return response.json(reply)
 
@@ -449,7 +496,7 @@ async def wait_for_dset(id):
                         )
                     )
                     return False
-                except CancelledError:
+                except asyncio.CancelledError:
                     logger.warning(
                         "wait_for_ds: Request cancelled while waiting for dataset {}".format(
                             id
@@ -502,7 +549,7 @@ async def wait_for_state(id):
                         )
                     )
                     return False
-                except CancelledError:
+                except asyncio.CancelledError:
                     logger.warning(
                         "wait_for_ds: Request cancelled while waiting for state {}".format(
                             id
