@@ -2,8 +2,7 @@
 import asyncio
 import aioredis
 import logging
-
-from concurrent.futures import CancelledError
+import asyncio.CancelledError as CancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -186,12 +185,29 @@ class Lock:
         logger.debug(f"Released lock {self.name}.")
 
     async def __aenter__(self):
-        """Acquire lock."""
-        return await self.acquire()
+        """
+        Acquire lock.
+
+        Shielded from cancellation. In case of cancellation, the lock acquisition is
+        awaited anyways and then the lock is released.
+        """
+        task = asyncio.ensure_future(self.acquire())
+        try:
+            return await asyncio.shield(task)
+        except CancelledError:
+            logger.debug(
+                "Acquisition of lock {} cancelled. Releasing...".format(self.name)
+            )
+            await self.release()
+            raise
 
     async def __aexit__(self, exc_type, exc, tb):
-        """Release lock."""
-        await self.release()
+        """
+        Release lock.
+
+        Shielded from cancellation.
+        """
+        await asyncio.shield(self.release())
 
 
 class Condition:
@@ -304,7 +320,14 @@ end
             )
 
         # Use the internal redis connection
-        await self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
+        task = asyncio.ensure_future(
+            self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
+        )
+        try:
+            await asyncio.shield(task)
+        except CancelledError:
+            await task
+            raise
 
     async def wait(self, timeout=0):
         """
@@ -354,7 +377,12 @@ end
         #
         # waiting = dict()
         # waiting[name] += 1
-        await r.execute("hincrby", "WAITING", self.condname, 1)
+        task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname, 1))
+        try:
+            asyncio.shield(task)
+        except CancelledError:
+            await task
+            raise
 
         # release the lock while waiting
         cancelled = None
