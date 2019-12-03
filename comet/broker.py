@@ -3,6 +3,7 @@ import aioredis
 import asyncio
 import datetime
 import json
+import random
 import logging
 import redis as redis_sync
 import time
@@ -14,9 +15,9 @@ from socket import socket
 from threading import Thread
 from time import sleep
 
+import contextvars
 from sanic import Sanic
 from sanic import response
-from sanic.log import logger
 from concurrent.futures import CancelledError
 
 from . import __version__
@@ -32,6 +33,17 @@ app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 120
 app.config.RESPONSE_TIMEOUT = 120
 
+request_thread_id = contextvars.ContextVar("request_thread_id")
+
+logging.basicConfig(format="[%(asctime)s] %(name)s request_id:%(request_thread_id) - %(message)s")
+
+class RequestAdapter(logging.loggerAdapter):
+    def process(self, msg, kwargs):
+        kwargs.setdefault('extra', {})['request_thread_id'] = request_thread_id.get()
+        return msg, kwargs
+
+logger = RequestAdapter(logging.getLogger(__name__), None)
+
 
 @app.route("/status", methods=["GET"])
 async def status(request):
@@ -42,6 +54,7 @@ async def status(request):
 
     curl -X GET http://localhost:12050/status
     """
+    request_thread_id.set(random.randint())
     logger.debug("status: Received status request")
     return response.json({"running": True, "result": "success"})
 
@@ -55,6 +68,7 @@ async def get_states(request):
 
     curl -X GET http://localhost:12050/states
     """
+    request_thread_id.set(random.randint())
 
     logger.debug("status: Received states request")
 
@@ -74,6 +88,7 @@ async def get_datasets(request):
 
     curl -X GET http://localhost:12050/datasets
     """
+    request_thread_id.set(random.randint())
     logger.debug("status: Received datasets request")
 
     datasets = await redis.execute("hkeys", "datasets")
@@ -186,6 +201,7 @@ async def send_state(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
+    request_thread_id.set(random.randint())
     hash = request.json["hash"]
     state = request.json["state"]
     if state:
@@ -233,6 +249,7 @@ async def register_dataset(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
+    request_thread_id.set(random.randint())
     hash = request.json["hash"]
     logger.info("/register-dataset {}".format(hash))
     ds = request.json["ds"]
@@ -408,6 +425,7 @@ async def request_state(request):
     curl -d '{"state_id":42}' -X POST -H "Content-Type: application/json"
          http://localhost:12050/request-state
     """
+    request_thread_id.set(random.randint())
     id = request.json["id"]
     logger.debug("/request-state {}".format(id))
 
@@ -553,6 +571,7 @@ async def update_datasets(request):
     -H "Content-Type: application/json"
     http://localhost:12050/update-datasets
     """
+    request_thread_id.set(random.randint())
     ds_id = request.json["ds_id"]
     ts = request.json["ts"]
     roots = request.json["roots"]
