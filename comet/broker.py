@@ -37,7 +37,20 @@ request_thread_id = contextvars.ContextVar("request_thread_id", default=0)
 
 
 class RequestAdapter(logging.LoggerAdapter):
+    """Logging Adapter for Request Ids"""
+
     def process(self, msg, kwargs):
+        """
+        Prefix msgs with request thread Id.
+
+        Parameters
+        ----------
+        msg : str
+            Classic logging message
+
+        kwargs : dict
+            Checks for request_thread_id variable to prefix to msg. Otherwise uses default.
+        """
         thread_id = kwargs.pop("request_thread_id", self.extra["request_thread_id"])
         return "[%s] %s" % (thread_id, msg), kwargs
 
