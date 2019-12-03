@@ -2,7 +2,6 @@
 import asyncio
 import aioredis
 import logging
-import asyncio.CancelledError as CancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -323,9 +322,12 @@ end
         task = asyncio.ensure_future(
             self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
         )
+        # If the request gets cancelled while doing this, we have to make sure to await
+        # the shielded task, because directly after, the context manager will release
+        # the lock.
         try:
             await asyncio.shield(task)
-        except CancelledError:
+        except asyncio.CancelledError:
             await task
             raise
 
@@ -365,13 +367,21 @@ end
                 "Parameter timeout is of type {} (expected int).".format(type(timeout))
             )
 
-        # Save a reference to the connection so that we can preserve it through the release/acquire cycle
+        # Save a reference to the connection so that we can preserve it through the
+        # release/acquire cycle
         r = self.lock._redis_conn
 
         if timeout < 0:
             raise TimeoutError
 
+        # Save any caught CancelledError's in here to let them out again after cleaning
+        # up.
+        cancelled = None
+
         # register as a waiting process
+        #
+        # If this gets cancelled, we want to wait for the shielded task, before we
+        # remove our process from the waiting list again.
         #
         # PSEUDOCODE:
         #
@@ -379,19 +389,26 @@ end
         # waiting[name] += 1
         task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname, 1))
         try:
-            asyncio.shield(task)
-        except CancelledError:
-            await task
-            raise
-
-        # release the lock while waiting
-        cancelled = None
-        try:
             # Shield against cancellation
-            await asyncio.shield(self.lock.release(close=False))
-        except CancelledError as err:
+            asyncio.shield(task)
+        except asyncio.CancelledError as err:
             # In case of cancellation, continue but remember cancellation
+            # Wait for the lock acquisition to complete
+            await task
             cancelled = err
+
+        # remember if we acquired the lock or got cancelled before
+        have_lock = False
+        if not cancelled:
+            # release the lock while waiting
+            task = asyncio.ensure_future(self.lock.release(close=False))
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                await task
+                cancelled = err
+            finally:
+                have_lock = True
 
         # Wait for notification
         #
@@ -401,44 +418,67 @@ end
         #     if name:
         #         name.pop()
         timed_out = False
+        blpop_cancelled = True
         if not cancelled:
             try:
                 # allow this to be cancelled, but catch to reacquire lock etc
                 ret = await r.execute("blpop", self.condname, timeout)
-            except CancelledError as err:
+            except asyncio.CancelledError as err:
                 # In case of cancellation, continue but remember cancellation
                 cancelled = err
             else:
+                blpop_cancelled = False
                 if ret is None:
                     timed_out = True
 
-        # reacquire the lock
-        try:
-            # shield against cancellation
-            await asyncio.shield(self.lock.acquire(r))
-        except CancelledError as err:
-            # In case of cancellation, continue but remember cancellation
-            cancelled = err
+        if have_lock:
+            # reacquire the lock
+            task = asyncio.ensure_future(self.lock.acquire(r))
+            try:
+                # shield against cancellation
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                # In case of cancellation, wait for lock acquisition and continue but
+                # remember cancellation
+                await task
+                cancelled = err
 
-        # Decrement number of waiting processes and reset notification.
-        # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if
-        # WAITING/KEY[0] is zero:
-        #
-        # PSEUDOCODE:
-        #
-        # waiting[name] -= 1
-        # if waiting[name] > 0:
-        #     name.append(1)
-        redis_reset_cond = """
-        if redis.call('hincrby', 'WAITING', KEYS[1], -1) ~= 0 then
-            redis.call('lpush', KEYS[1], "1")
-        end
-        """
-        # shield against cancellation, but don't catch (we are done after this)
-        await asyncio.shield(r.execute("eval", redis_reset_cond, 1, self.condname))
+        if timed_out or blpop_cancelled:
+            # decrement the waiting list but don't push back on the cond variable
+            task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname))
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                await task
+                cancelled = err
+        else:
+            # Decrement number of waiting processes and reset notification.
+            # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if
+            # WAITING/KEY[0] is zero:
+            #
+            # PSEUDOCODE:
+            #
+            # waiting[name] -= 1
+            # if waiting[name] > 0:
+            #     name.append(1)
+            redis_reset_cond = """
+            if redis.call('hincrby', 'WAITING', KEYS[1], -1) ~= 0 then
+                redis.call('lpush', KEYS[1], "1")
+            end
+            """
+            # shield against cancellation, but don't catch (we are done after this)
+            task = asyncio.ensure_future(
+                r.execute("eval", redis_reset_cond, 1, self.condname)
+            )
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # wait before context manager releases the lock.
+                await task
+                raise
 
         # Now we can tell the caller about everything that went wrong
-        if timed_out:
-            raise TimeoutError
         if cancelled:
             raise cancelled
+        if timed_out:
+            raise TimeoutError

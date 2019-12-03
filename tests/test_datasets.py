@@ -61,7 +61,10 @@ def broker():
     os.environ["CHIMEDB_TEST_ENABLE"] = "Yes, please."
 
     broker = Popen(["comet", "--debug", "1", "-p", PORT])
-    time.sleep(3)
+
+    # TODO: remove the extra 5s once the startup waiting of sanic workers is replaced
+    # with a semaphore
+    time.sleep(3 + 5)
     yield
     os.kill(broker.pid, signal.SIGINT)
 
