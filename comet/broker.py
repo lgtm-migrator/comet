@@ -37,7 +37,7 @@ request_thread_id = contextvars.ContextVar("request_thread_id", default=0)
 
 
 class RequestAdapter(logging.LoggerAdapter):
-    """Logging Adapter for Request Ids"""
+    """Logging Adapter for Request Ids."""
 
     def process(self, msg, kwargs):
         """
