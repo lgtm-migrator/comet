@@ -303,13 +303,14 @@ class Condition:
     async def notify_all(self):
         """Notify all processes waiting for the condition variable."""
 
+        # Notify all registered waiters.
         #
         # PSEUDOCODE:
         #
-        # if waiting[name] > 0
+        # for 1 .. waiting[name]
         #     name.append(1)  # Appends to a list called name
         redis_notify_cond = """
-if redis.call('hget', 'WAITING', KEYS[1]) ~= 0 then
+for i=1,redis.call('hget', 'WAITING', KEYS[1]) do
     redis.call('lpush', KEYS[1], "1")
 end
         """
@@ -418,7 +419,6 @@ end
         #     if name:
         #         name.pop()
         timed_out = False
-        blpop_cancelled = True
         if not cancelled:
             try:
                 # allow this to be cancelled, but catch to reacquire lock etc
@@ -427,7 +427,6 @@ end
                 # In case of cancellation, continue but remember cancellation
                 cancelled = err
             else:
-                blpop_cancelled = False
                 if ret is None:
                     timed_out = True
 
@@ -443,39 +442,17 @@ end
                 await task
                 cancelled = err
 
-        if timed_out or blpop_cancelled:
-            # decrement the waiting list but don't push back on the cond variable
-            task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname))
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError as err:
-                await task
-                cancelled = err
-        else:
-            # Decrement number of waiting processes and reset notification.
-            # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if
-            # WAITING/KEY[0] is zero:
-            #
-            # PSEUDOCODE:
-            #
-            # waiting[name] -= 1
-            # if waiting[name] > 0:
-            #     name.append(1)
-            redis_reset_cond = """
-            if redis.call('hincrby', 'WAITING', KEYS[1], -1) ~= 0 then
-                redis.call('lpush', KEYS[1], "1")
-            end
-            """
-            # shield against cancellation, but don't catch (we are done after this)
-            task = asyncio.ensure_future(
-                r.execute("eval", redis_reset_cond, 1, self.condname)
-            )
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                # wait before context manager releases the lock.
-                await task
-                raise
+        # Decrement number of waiting processes by one.
+        # shield against cancellation, but don't catch (we are done after this)
+        task = asyncio.ensure_future(
+            r.execute("hincrby", 'WAITING', self.condname, -1)
+        )
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # wait before context manager releases the lock.
+            await task
+            raise
 
         # Now we can tell the caller about everything that went wrong
         if cancelled:
