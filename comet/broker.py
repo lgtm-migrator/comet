@@ -21,11 +21,10 @@ from sanic.log import logger
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-#from .redis_async_locks import Lock, Condition, LockError
-#from asyncio import Lock, Condition, LockError
+
 
 REQUESTED_STATE_TIMEOUT = 35
-WAIT_TIME = 5
+WAIT_TIME = 40
 DEFAULT_PORT = 12050
 REDIS_SERVER = ("localhost", 6379)
 
@@ -268,20 +267,7 @@ async def send_state(request):
             await redis.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
             archive_state = True
-            # From here on, cancellations (e.g. by the client) are ignored, because the
-            # state is in redis already.
-            # task = asyncio.ensure_future(cond_states.notify_all())
-            # try:
-            #     await asyncio.shield(task)
-            # except asyncio.CancelledError as err:
-            #     logger.info(
-            #         "/send-state {}: Notification got cancelled. Ignoring...".format(
-            #             hash
-            #         )
-            #     )
-            #     cancelled = err
-            #     # Wait for the shielded task before releasing lock
-            #     await task
+
             cond_states.notify_all()
 
     # Remove it from the set of requested states (if it's in there.)
