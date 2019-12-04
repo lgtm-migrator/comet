@@ -36,31 +36,21 @@ app.config.RESPONSE_TIMEOUT = 120
 request_thread_id = contextvars.ContextVar("request_thread_id", default=0)
 
 
-class RequestAdapter(logging.LoggerAdapter):
-    """Logging Adapter for Request Ids."""
+class RequestFormatter(logging.Formatter):
+    """Logging formatter for Request Ids."""
 
-    def process(self, msg, kwargs):
-        """
-        Prefix msgs with request thread Id.
+    def __init__(self, request_thread_id=contextvars.ContextVar("request_thread_id", default=0)):
+            self.thread_id = request_thread_id
+            super(RequestFormatter, self).__init__()
 
-        Parameters
-        ----------
-        msg : str
-            Classic logging message
-
-        kwargs : dict
-            Checks for request_thread_id variable to prefix to msg. Otherwise uses default.
-        """
-        return "[%s] %s" % (request_thread_id.get(), msg), kwargs
-
+    def format(self, record):
+        return f"[{datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}] {record.name}: [{self.thread_id.get()}] {record.msg}"
 
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
-formatter = logging.Formatter("[%(asctime)s] %(name)s: %(message)s")
+formatter = RequestFormatter(request_thread_id)
 syslog.setFormatter(formatter)
 logger.addHandler(syslog)
-
-logger = RequestAdapter(logger, None)
 
 
 @app.route("/status", methods=["GET"])
