@@ -52,6 +52,7 @@ class RequestFormatter(logging.Formatter):
     def format(self, record):
         return f"[{datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}] {record.name}: [{self.request_id.get()}] {record.msg}"
 
+
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
 formatter = RequestFormatter(request_id)
@@ -660,9 +661,7 @@ async def update_datasets(request):
     ds = json.loads(await redis.execute("hget", "datasets", ds_id))
     root = await find_root(ds_id, ds)
     if root is None:
-        logger.error(
-            "update-datasets: Root of dataset {} not found.".format(ds_id)
-        )
+        logger.error("update-datasets: Root of dataset {} not found.".format(ds_id))
         reply["result"] = "Root of dataset {} not found.".format(ds_id)
     if root not in roots:
         reply["datasets"] = await tree(root)
@@ -780,7 +779,7 @@ class Broker:
             return_asyncio_server=True,
             access_log=self.debug,
             debug=False,
-            **server_kwargs
+            **server_kwargs,
         )
 
         t.join()
