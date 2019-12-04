@@ -800,6 +800,7 @@ async def _init_redis_async(_, loop):
     await create_locks()
 
     # Wait for semaphore. This is to make sure no broker creates the lock after it got acquired.
+    # TODO: refactor and put into redis_async_locks
     redis_wait_semaphore = """
     if redis.call('INCRBY', KEYS[1], -1) == 0 then
         local n_workers = tonumber(redis.call('GET', KEYS[3]))

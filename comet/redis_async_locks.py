@@ -254,7 +254,8 @@ class Condition:
             The created condition variable.
         """
         self = cls(lock, name)
-        await self.lock.redis.execute("hset", "WAITING", self.condname, 0)
+        await self.redis.execute("hset", "WAITING", self.condname, 0)
+        await self.redis.execute("del", self.condname)
         return self
 
     async def close(self):
@@ -303,16 +304,18 @@ class Condition:
     async def notify_all(self):
         """Notify all processes waiting for the condition variable."""
 
-        # Notify all registered waiters.
+        # Notify all registered waiters. And remove them from the waiting counter.
         #
         # PSEUDOCODE:
         #
         # for 1 .. waiting[name]
         #     name.append(1)  # Appends to a list called name
+        # waiting[name] = 0
         redis_notify_cond = """
 for i=1,redis.call('hget', 'WAITING', KEYS[1]) do
     redis.call('lpush', KEYS[1], "1")
 end
+redis.call('HSET', 'WAITING', KEYS[1], 0)
         """
         if not await self.locked():
             raise LockError(
@@ -441,16 +444,6 @@ end
                 # remember cancellation
                 await task
                 cancelled = err
-
-        # Decrement number of waiting processes by one.
-        # shield against cancellation, but don't catch (we are done after this)
-        task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname, -1))
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            # wait before context manager releases the lock.
-            await task
-            raise
 
         # Now we can tell the caller about everything that went wrong
         if cancelled:
