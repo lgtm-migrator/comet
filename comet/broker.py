@@ -56,6 +56,7 @@ class RequestFormatter(logging.Formatter):
         super().__init__(format)
 
     def format(self, record):
+        """Add the request_id and apply the format."""
         record.request_id = self.request_id.get()
         return logging.Formatter.format(self, record)
 
