@@ -21,10 +21,11 @@ from sanic.log import logger
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
-from .redis_async_locks import Lock, Condition, LockError
+#from .redis_async_locks import Lock, Condition, LockError
+#from asyncio import Lock, Condition, LockError
 
 REQUESTED_STATE_TIMEOUT = 35
-WAIT_TIME = 40
+WAIT_TIME = 5
 DEFAULT_PORT = 12050
 REDIS_SERVER = ("localhost", 6379)
 
@@ -34,6 +35,12 @@ app.config.RESPONSE_TIMEOUT = 120
 
 
 request_id = contextvars.ContextVar("request_id", default=0)
+
+
+lock_datasets = None
+lock_states = None
+cond_states = None
+cond_datasets = None
 
 
 class RequestFormatter(logging.Formatter):
@@ -195,12 +202,12 @@ async def register_state(request):
     reply = dict(result="success")
 
     # Lock states and check if the received state is already known.
-    async with lock_states as r:
-        state = await r.execute("hget", "states", hash)
+    async with lock_states:
+        state = await redis.execute("hget", "states", hash)
         if state is None:
             # we don't know this state, did we request it already?
             # After REQUEST_STATE_TIMEOUT we request it again.
-            request_time = await r.execute("hget", "requested_states", hash)
+            request_time = await redis.execute("hget", "requested_states", hash)
             if request_time:
                 request_time = float(request_time)
                 if request_time > time.time() - REQUESTED_STATE_TIMEOUT:
@@ -216,7 +223,7 @@ async def register_state(request):
             reply["request"] = "get_state"
             reply["hash"] = hash
             logger.debug("register-state: Asking for state, hash: {}".format(hash))
-            await r.execute("hset", "requested_states", hash, time.time())
+            await redis.execute("hset", "requested_states", hash, time.time())
     return response.json(reply)
 
 
@@ -241,8 +248,8 @@ async def send_state(request):
     cancelled = None
 
     # Lock states and check if we know this state already.
-    async with lock_states as r:
-        found = await r.execute("hget", "states", hash)
+    async with lock_states:
+        found = await redis.execute("hget", "states", hash)
         if found is not None:
             # this string needs to be deserialized, contains a state
             found = json.loads(found)
@@ -258,23 +265,24 @@ async def send_state(request):
             else:
                 reply["result"] = "success"
         else:
-            await r.execute("hset", "states", hash, json.dumps(state))
+            await redis.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
             archive_state = True
             # From here on, cancellations (e.g. by the client) are ignored, because the
             # state is in redis already.
-            task = asyncio.ensure_future(cond_states.notify_all())
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError as err:
-                logger.info(
-                    "/send-state {}: Notification got cancelled. Ignoring...".format(
-                        hash
-                    )
-                )
-                cancelled = err
-                # Wait for the shielded task before releasing lock
-                await task
+            # task = asyncio.ensure_future(cond_states.notify_all())
+            # try:
+            #     await asyncio.shield(task)
+            # except asyncio.CancelledError as err:
+            #     logger.info(
+            #         "/send-state {}: Notification got cancelled. Ignoring...".format(
+            #             hash
+            #         )
+            #     )
+            #     cancelled = err
+            #     # Wait for the shielded task before releasing lock
+            #     await task
+            cond_states.notify_all()
 
     # Remove it from the set of requested states (if it's in there.)
     try:
@@ -317,8 +325,8 @@ async def register_dataset(request):
     cancelled = None
 
     # Lack datasets and check if dataset already known.
-    async with lock_datasets as r:
-        found = await r.execute("hget", "datasets", hash)
+    async with lock_datasets:
+        found = await redis.execute("hget", "datasets", hash)
         if found is not None:
             # this string needs to be deserialized, contains a dataset
             found = json.loads(found)
@@ -333,23 +341,13 @@ async def register_dataset(request):
                 reply["result"] = "success"
         elif dataset_valid and root is not None:
             # save the dataset
-            await save_dataset(r, hash, ds, root)
+            await save_dataset(hash, ds, root)
 
             reply["result"] = "success"
             archive_ds = True
 
-            # From here on ignore cancellations and finish anyways
-            task = asyncio.ensure_future(cond_datasets.notify_all())
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError as err:
-                logger.info(
-                    "/register-dataset {}: Notification got cancelled. Ignoring...".format(
-                        hash
-                    )
-                )
-                cancelled = err
-                await task
+            cond_datasets.notify_all()
+
         else:
             reply["result"] = "Dataset {} invalid.".format(hash)
             logger.debug(
@@ -368,7 +366,7 @@ async def register_dataset(request):
     return response.json(reply)
 
 
-async def save_dataset(r, hash, ds, root):
+async def save_dataset(hash, ds, root):
     """Save the given dataset, its hash and a current timestamp.
 
     This should be called while a lock on the datasets is held.
@@ -377,8 +375,8 @@ async def save_dataset(r, hash, ds, root):
     ts = caput_time.datetime_to_unix(datetime.datetime.utcnow())
 
     # get dicts from redis concurrently
-    task = asyncio.ensure_future(r.execute("hget", "datasets_of_root", root))
-    datasets_of_root_keys = await r.execute("hget", "datasets_of_root_keys", root)
+    task = asyncio.ensure_future(redis.execute("hget", "datasets_of_root", root))
+    datasets_of_root_keys = await redis.execute("hget", "datasets_of_root_keys", root)
     (task,), _ = await asyncio.wait({task})
     datasets_of_root = task.result()
 
@@ -401,16 +399,16 @@ async def save_dataset(r, hash, ds, root):
 
     # save changes
     task1 = asyncio.ensure_future(
-        r.execute("hset", "datasets_of_root", root, json.dumps(datasets_of_root))
+        redis.execute("hset", "datasets_of_root", root, json.dumps(datasets_of_root))
     )
     task2 = asyncio.ensure_future(
-        r.execute(
+        redis.execute(
             "hset", "datasets_of_root_keys", root, json.dumps(datasets_of_root_keys)
         )
     )
 
     # Insert the dataset in the hashmap
-    task3 = asyncio.ensure_future(r.execute("hset", "datasets", hash, json.dumps(ds)))
+    task3 = asyncio.ensure_future(redis.execute("hset", "datasets", hash, json.dumps(ds)))
 
     # Wait for all concurrent tasks
     await asyncio.wait({task1, task2, task3})
@@ -423,12 +421,12 @@ async def gather_update(ts, roots):
     given roots that were registered after the given timestamp.
     """
     update = dict()
-    async with lock_datasets as r:
+    async with lock_datasets:
         for root in roots:
             # Get both dicts from redis concurrently:
             keys, tree = await asyncio.gather(
-                r.execute("hget", "datasets_of_root_keys", root),
-                r.execute("hget", "datasets_of_root", root),
+                redis.execute("hget", "datasets_of_root_keys", root),
+                redis.execute("hget", "datasets_of_root", root),
             )
 
             keys = reversed(json.loads(keys))
@@ -441,7 +439,7 @@ async def gather_update(ts, roots):
             for n, k in zip(tree, keys):
                 if k < ts:
                     break
-                tasks.append(asyncio.ensure_future(r.execute("hget", "datasets", n)))
+                tasks.append(asyncio.ensure_future(redis.execute("hget", "datasets", n)))
 
             if tasks:
                 # Wait for all concurrent tasks
@@ -529,10 +527,12 @@ async def wait_for_dset(id):
         start_wait = time.time()
         while True:
             # did someone send it to us by now?
-            async with cond_datasets as r:
+            async with cond_datasets:
                 try:
-                    await cond_datasets.wait(wait_time)
-                except TimeoutError:
+                    await asyncio.wait_for(cond_datasets.wait(), wait_time)
+                    #await cond_datasets.wait()
+                except asyncio.TimeoutError:
+                    await asyncio.sleep(0)
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
                             WAIT_TIME, id
@@ -545,9 +545,10 @@ async def wait_for_dset(id):
                             id
                         )
                     )
+                    await lock_datasets.acquire()
                     return False
 
-                if await r.execute("hexists", "datasets", id):
+                if await redis.execute("hexists", "datasets", id):
                     logger.debug("wait_for_ds: Found dataset {}".format(id))
                     break
 
@@ -582,10 +583,10 @@ async def wait_for_state(id):
         start_wait = time.time()
         while True:
             # did someone send it to us by now?
-            async with cond_states as r:
+            async with cond_states:
                 try:
-                    await cond_states.wait(wait_time)
-                except TimeoutError:
+                    await asyncio.wait_for(cond_states.wait(), wait_time)
+                except asyncio.TimeoutError:
                     logger.warning(
                         "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
                             WAIT_TIME, id
@@ -598,8 +599,9 @@ async def wait_for_state(id):
                             id
                         )
                     )
+                    await lock_states.acquire()
                     return False
-                if await r.execute("hexists", "states", id):
+                if await redis.execute("hexists", "states", id):
                     logger.debug("wait_for_ds: Found state {}".format(id))
                     break
 
@@ -683,12 +685,13 @@ async def update_datasets(request):
 
 async def tree(root):
     """Return a list of all nodes in the given tree."""
-    async with lock_datasets as r:
-        datasets_of_root = json.loads(await r.execute("hget", "datasets_of_root", root))
+    async with lock_datasets:
+        datasets_of_root = json.loads(await redis.execute("hget", "datasets_of_root", root))
 
         # Request all datasets concurrently
+        # TODO: have redis fetch these all at once
         dsets = await asyncio.gather(
-            *[r.execute("hget", "datasets", n) for n in datasets_of_root]
+            *[redis.execute("hget", "datasets", n) for n in datasets_of_root]
         )
         tree = dict(zip(datasets_of_root, [json.loads(ds) for ds in dsets]))
     return tree
@@ -775,10 +778,6 @@ class Broker:
             server_kwargs["port"] = port
         self.port = port
 
-        # create a semaphore that the workers wait on on start
-        r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
-        r.set("semaphore_worker_start_counter", self.n_workers)
-        r.set("semaphore_worker_start_total", self.n_workers)
 
         app.run(
             workers=self.n_workers,
@@ -792,37 +791,12 @@ class Broker:
         logger.info("Comet stopped.")
 
 
-async def create_locks():
-    """Create all redis locks."""
+async def _create_locks(_, loop):
     global lock_states, lock_datasets, cond_states, cond_datasets
-
-    lock_states = await Lock.create(redis, "states")
-    lock_datasets = await Lock.create(redis, "datasets")
-    cond_states = await Condition.create(lock_states, "states")
-    cond_datasets = await Condition.create(lock_datasets, "datasets")
-
-
-async def close_locks():
-    """Create all redis locks."""
-    # Free the condition variables first as this requires the lock to do so.
-    # Ignore if lock already closed by another worker.
-    try:
-        await cond_states.close()
-    except LockError:
-        pass
-    try:
-        await cond_datasets.close()
-    except LockError:
-        pass
-    try:
-        await lock_states.close()
-    except LockError:
-        pass
-    try:
-        await lock_datasets.close()
-    except LockError:
-        pass
-
+    lock_datasets = asyncio.Lock()
+    lock_states = asyncio.Lock()
+    cond_states = asyncio.Condition(lock_states)
+    cond_datasets = asyncio.Condition(lock_datasets)
 
 # Create the Redis connection pool, use sanic to start it so that it
 # ends up in the same event loop
@@ -834,34 +808,13 @@ async def _init_redis_async(_, loop):
     redis = await aioredis.create_pool(
         REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=50000
     )
-    await create_locks()
-
-    # Wait for semaphore. This is to make sure no broker creates the lock after it got acquired.
-    # TODO: refactor and put into redis_async_locks
-    redis_wait_semaphore = """
-    if redis.call('INCRBY', KEYS[1], -1) == 0 then
-        local n_workers = tonumber(redis.call('GET', KEYS[3]))
-        for i=1,n_workers do
-            redis.call('RPUSH', KEYS[2], '1')
-        end
-    end
-    """
-    await redis.execute(
-        "eval",
-        redis_wait_semaphore,
-        3,
-        "semaphore_worker_start_counter",
-        "semaphore_worker_start",
-        "semaphore_worker_start_total",
-    )
-    await redis.execute("BRPOP", "semaphore_worker_start", 0)
 
 
 async def _close_redis_async(_, loop):
-    await close_locks()
     redis.close()
     await redis.wait_closed()
 
 
 app.register_listener(_init_redis_async, "before_server_start")
+app.register_listener(_create_locks, "before_server_start")
 app.register_listener(_close_redis_async, "after_server_stop")
