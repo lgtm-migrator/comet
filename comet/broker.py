@@ -73,7 +73,7 @@ formatter = RequestFormatter(
 syslog.setFormatter(formatter)
 logging.getLogger("comet").setLevel(logging.DEBUG)
 # logging.getLogger("").addFilter(reqfilter)
-logging.getLogger("comet").addHandler(syslog)
+logging.getLogger("").addHandler(syslog)
 
 
 @app.middleware("request")
@@ -91,8 +91,13 @@ async def status(request):
 
     curl -X GET http://localhost:12050/status
     """
-    logger.debug("status: Received status request")
-    return response.json({"running": True, "result": "success"})
+    try:
+        logger.debug("status: Received status request")
+        return response.json({"running": True, "result": "success"})
+    except Exception as e:
+        logger.error("status: received exception %s", e)
+    finally:
+        logger.debug("status: finished")
 
 
 @app.route("/states", methods=["GET"])
@@ -105,13 +110,18 @@ async def get_states(request):
     curl -X GET http://localhost:12050/states
     """
 
-    logger.debug("status: Received states request")
+    try:
+        logger.debug("get_states: Received states request")
 
-    states = await redis.execute("hkeys", "states")
-    reply = {"result": "success", "states": states}
+        states = await redis.execute("hkeys", "states")
+        reply = {"result": "success", "states": states}
 
-    logger.debug("states: {}".format(states))
-    return response.json(reply)
+        logger.debug("states: {}".format(states))
+        return response.json(reply)
+    except Exception as e:
+        logger.error("get_states: received exception %s", e)
+    finally:
+        logger.debug("get_states: finished")
 
 
 @app.route("/datasets", methods=["GET"])
@@ -123,13 +133,18 @@ async def get_datasets(request):
 
     curl -X GET http://localhost:12050/datasets
     """
-    logger.debug("status: Received datasets request")
+    try:
+        logger.debug("get_datasets: Received datasets request")
 
-    datasets = await redis.execute("hkeys", "datasets")
-    reply = {"result": "success", "datasets": datasets}
+        datasets = await redis.execute("hkeys", "datasets")
+        reply = {"result": "success", "datasets": datasets}
 
-    logger.debug("datasets: {}".format(datasets))
-    return response.json(reply)
+        logger.debug("datasets: {}".format(datasets))
+        return response.json(reply)
+    except Exception as e:
+        logger.error("get_datasets: received exception %s", e)
+    finally:
+        logger.debug("get_datasets: finished")
 
 
 async def archive(data_type, json_data):
@@ -200,34 +215,39 @@ async def register_state(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json["hash"]
-    logger.info("/register-state {}".format(hash))
-    reply = dict(result="success")
+    try:
+        hash = request.json["hash"]
+        logger.info("/register-state {}".format(hash))
+        reply = dict(result="success")
 
-    # Lock states and check if the received state is already known.
-    async with lock_states:
-        state = await redis.execute("hget", "states", hash)
-        if state is None:
-            # we don't know this state, did we request it already?
-            # After REQUEST_STATE_TIMEOUT we request it again.
-            request_time = await redis.execute("hget", "requested_states", hash)
-            if request_time:
-                request_time = float(request_time)
-                if request_time > time.time() - REQUESTED_STATE_TIMEOUT:
-                    return response.json(reply)
-                else:
-                    logger.debug(
-                        "register-state: {} requested {:.2f}s ago, asking again....".format(
-                            hash, time.time() - request_time
+        # Lock states and check if the received state is already known.
+        async with lock_states:
+            state = await redis.execute("hget", "states", hash)
+            if state is None:
+                # we don't know this state, did we request it already?
+                # After REQUEST_STATE_TIMEOUT we request it again.
+                request_time = await redis.execute("hget", "requested_states", hash)
+                if request_time:
+                    request_time = float(request_time)
+                    if request_time > time.time() - REQUESTED_STATE_TIMEOUT:
+                        return response.json(reply)
+                    else:
+                        logger.debug(
+                            "register-state: {} requested {:.2f}s ago, asking again....".format(
+                                hash, time.time() - request_time
+                            )
                         )
-                    )
 
-            # otherwise, request it now
-            reply["request"] = "get_state"
-            reply["hash"] = hash
-            logger.debug("register-state: Asking for state, hash: {}".format(hash))
-            await redis.execute("hset", "requested_states", hash, time.time())
-    return response.json(reply)
+                # otherwise, request it now
+                reply["request"] = "get_state"
+                reply["hash"] = hash
+                logger.debug("register-state: Asking for state, hash: {}".format(hash))
+                await redis.execute("hset", "requested_states", hash, time.time())
+        return response.json(reply)
+    except Exception as e:
+        logger.error("register-state: received exception %s", e)
+    finally:
+        logger.debug("register-state: finished")
 
 
 @app.route("/send-state", methods=["POST"])
@@ -236,62 +256,67 @@ async def send_state(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json["hash"]
-    state = request.json["state"]
-    if state:
-        type = state["type"]
-    else:
-        type = None
-    logger.info("/send-state {} {}".format(type, hash))
-    reply = dict()
-    archive_state = False
-
-    # In case the shielded part of this endpoint gets cancelled, we ignore it but
-    # re-raise the CancelledError in the end
-    cancelled = None
-
-    # Lock states and check if we know this state already.
-    async with lock_states:
-        found = await redis.execute("hget", "states", hash)
-        if found is not None:
-            # this string needs to be deserialized, contains a state
-            found = json.loads(found)
-
-            # if we know it already, does it differ?
-            if found != state:
-                reply["result"] = (
-                    "error: hash collision ({})\nTrying to register the following "
-                    "dataset state:\n{},\nbut a different state is know to "
-                    "the broker with the same hash:\n{}".format(hash, state, found)
-                )
-                logger.warning("send-state: {}".format(reply["result"]))
-            else:
-                reply["result"] = "success"
-        else:
-            await redis.execute("hset", "states", hash, json.dumps(state))
-            reply["result"] = "success"
-            archive_state = True
-
-            cond_states.notify_all()
-
-    # Remove it from the set of requested states (if it's in there.)
     try:
-        await asyncio.shield(redis.execute("hdel", "requested_states", hash))
-    except asyncio.CancelledError as err:
-        logger.info(
-            "/send-state {}: Cancelled while removing requested state. Ignoring...".format(
-                hash
+        hash = request.json["hash"]
+        state = request.json["state"]
+        if state:
+            type = state["type"]
+        else:
+            type = None
+        logger.info("/send-state {} {}".format(type, hash))
+        reply = dict()
+        archive_state = False
+
+        # In case the shielded part of this endpoint gets cancelled, we ignore it but
+        # re-raise the CancelledError in the end
+        cancelled = None
+
+        # Lock states and check if we know this state already.
+        async with lock_states:
+            found = await redis.execute("hget", "states", hash)
+            if found is not None:
+                # this string needs to be deserialized, contains a state
+                found = json.loads(found)
+
+                # if we know it already, does it differ?
+                if found != state:
+                    reply["result"] = (
+                        "error: hash collision ({})\nTrying to register the following "
+                        "dataset state:\n{},\nbut a different state is know to "
+                        "the broker with the same hash:\n{}".format(hash, state, found)
+                    )
+                    logger.warning("send-state: {}".format(reply["result"]))
+                else:
+                    reply["result"] = "success"
+            else:
+                await redis.execute("hset", "states", hash, json.dumps(state))
+                reply["result"] = "success"
+                archive_state = True
+
+                cond_states.notify_all()
+
+        # Remove it from the set of requested states (if it's in there.)
+        try:
+            await asyncio.shield(redis.execute("hdel", "requested_states", hash))
+        except asyncio.CancelledError as err:
+            logger.info(
+                "/send-state {}: Cancelled while removing requested state. Ignoring...".format(
+                    hash
+                )
             )
-        )
-        cancelled = err
+            cancelled = err
 
-    if archive_state:
-        await asyncio.shield(archive("state", request.json))
+        if archive_state:
+            await asyncio.shield(archive("state", request.json))
 
-    # Done cleaning up, re-raise if this request got cancelled.
-    if cancelled:
-        raise cancelled
-    return response.json(reply)
+        # Done cleaning up, re-raise if this request got cancelled.
+        if cancelled:
+            raise cancelled
+        return response.json(reply)
+    except Exception as e:
+        logger.error("send-state: received exception %s", e)
+    finally:
+        logger.debug("send-state: finished")
 
 
 @app.route("/register-dataset", methods=["POST"])
@@ -300,60 +325,65 @@ async def register_dataset(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    hash = request.json["hash"]
-    logger.info("/register-dataset {}".format(hash))
-    ds = request.json["ds"]
+    try:
+        hash = request.json["hash"]
+        logger.info("/register-dataset {}".format(hash))
+        ds = request.json["ds"]
 
-    dataset_valid = await check_dataset(ds)
-    reply = dict()
-    if dataset_valid:
-        root = await find_root(hash, ds)
-    archive_ds = False
+        dataset_valid = await check_dataset(ds)
+        reply = dict()
+        if dataset_valid:
+            root = await find_root(hash, ds)
+        archive_ds = False
 
-    # In case the shielded part of this endpoint gets cancelled, we ignore it but
-    # re-raise the CancelledError in the end
-    cancelled = None
+        # In case the shielded part of this endpoint gets cancelled, we ignore it but
+        # re-raise the CancelledError in the end
+        cancelled = None
 
-    # Lack datasets and check if dataset already known.
-    async with lock_datasets:
-        found = await redis.execute("hget", "datasets", hash)
-        if found is not None:
-            # this string needs to be deserialized, contains a dataset
-            found = json.loads(found)
-            # if we know it already, does it differ?
-            if found != ds:
-                reply["result"] = (
-                    "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
-                    "the broker with the same hash:\n{}".format(hash, ds, found)
-                )
-                logger.warning("register-dataset: {}".format(reply["result"]))
-            else:
+        # Lack datasets and check if dataset already known.
+        async with lock_datasets:
+            found = await redis.execute("hget", "datasets", hash)
+            if found is not None:
+                # this string needs to be deserialized, contains a dataset
+                found = json.loads(found)
+                # if we know it already, does it differ?
+                if found != ds:
+                    reply["result"] = (
+                        "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
+                        "the broker with the same hash:\n{}".format(hash, ds, found)
+                    )
+                    logger.warning("register-dataset: {}".format(reply["result"]))
+                else:
+                    reply["result"] = "success"
+            elif dataset_valid and root is not None:
+                # save the dataset
+                await save_dataset(hash, ds, root)
+
                 reply["result"] = "success"
-        elif dataset_valid and root is not None:
-            # save the dataset
-            await save_dataset(hash, ds, root)
+                archive_ds = True
 
-            reply["result"] = "success"
-            archive_ds = True
+                cond_datasets.notify_all()
 
-            cond_datasets.notify_all()
-
-        else:
-            reply["result"] = "Dataset {} invalid.".format(hash)
-            logger.debug(
-                "register-dataset: Received invalid dataset with hash {} : {}".format(
-                    hash, ds
+            else:
+                reply["result"] = "Dataset {} invalid.".format(hash)
+                logger.debug(
+                    "register-dataset: Received invalid dataset with hash {} : {}".format(
+                        hash, ds
+                    )
                 )
-            )
 
-    if archive_ds:
-        await asyncio.shield(archive("dataset", request.json))
+        if archive_ds:
+            await asyncio.shield(archive("dataset", request.json))
 
-    # Done cleaning up, re-raise if this request got cancelled.
-    if cancelled:
-        raise cancelled
+        # Done cleaning up, re-raise if this request got cancelled.
+        if cancelled:
+            raise cancelled
 
-    return response.json(reply)
+        return response.json(reply)
+    except Exception as e:
+        logger.error("register-dataset: received exception %s", e)
+    finally:
+        logger.debug("register-dataset: finished")
 
 
 async def save_dataset(hash, ds, root):
@@ -489,26 +519,31 @@ async def request_state(request):
     curl -d '{"state_id":42}' -X POST -H "Content-Type: application/json"
          http://localhost:12050/request-state
     """
-    id = request.json["id"]
-    logger.debug("/request-state {}".format(id))
+    try:
+        id = request.json["id"]
+        logger.debug("/request-state {}".format(id))
 
-    reply = dict()
-    reply["id"] = id
+        reply = dict()
+        reply["id"] = id
 
-    # Do we know this state ID?
-    logger.debug("request-state: waiting for state ID {}".format(id))
-    found = await wait_for_state(id)
-    if not found:
-        reply["result"] = "state ID {} unknown to broker.".format(id)
-        logger.info("request-state: State {} unknown to broker".format(id))
+        # Do we know this state ID?
+        logger.debug("request-state: waiting for state ID {}".format(id))
+        found = await wait_for_state(id)
+        if not found:
+            reply["result"] = "state ID {} unknown to broker.".format(id)
+            logger.info("request-state: State {} unknown to broker".format(id))
+            return response.json(reply)
+        logger.debug("request-state: found state ID {}".format(id))
+
+        reply["state"] = json.loads(await redis.execute("hget", "states", id))
+
+        reply["result"] = "success"
+        logger.debug("request-state: Replying with state {}".format(id))
         return response.json(reply)
-    logger.debug("request-state: found state ID {}".format(id))
-
-    reply["state"] = json.loads(await redis.execute("hget", "states", id))
-
-    reply["result"] = "success"
-    logger.debug("request-state: Replying with state {}".format(id))
-    return response.json(reply)
+    except Exception as e:
+        logger.error("request-state: received exception %s", e)
+    finally:
+        logger.debug("request-state: finished")
 
 
 async def wait_for_dset(id):
@@ -637,43 +672,48 @@ async def update_datasets(request):
     -H "Content-Type: application/json"
     http://localhost:12050/update-datasets
     """
-    ds_id = request.json["ds_id"]
-    ts = request.json["ts"]
-    roots = request.json["roots"]
-    logger.info("/update-datasets {} {} {}.".format(ds_id, ts, roots))
+    try:
+        ds_id = request.json["ds_id"]
+        ts = request.json["ts"]
+        roots = request.json["roots"]
+        logger.info("/update-datasets {} {} {}.".format(ds_id, ts, roots))
 
-    reply = dict()
-    reply["datasets"] = dict()
+        reply = dict()
+        reply["datasets"] = dict()
 
-    # Do we know this ds ID?
-    found = await wait_for_dset(ds_id)
-    if not found:
-        reply["result"] = "update-datasets: Dataset ID {} unknown to broker.".format(
-            ds_id
-        )
-        logger.info("update-datasets: Dataset ID {} unknown.".format(ds_id))
+        # Do we know this ds ID?
+        found = await wait_for_dset(ds_id)
+        if not found:
+            reply[
+                "result"
+            ] = "update-datasets: Dataset ID {} unknown to broker.".format(ds_id)
+            logger.info("update-datasets: Dataset ID {} unknown.".format(ds_id))
+            return response.json(reply)
+
+        if ts is 0:
+            ts = caput_time.datetime_to_unix(datetime.datetime.min)
+
+        # If the requested dataset is from a tree not known to the calling
+        # instance, send them that whole tree.
+        ds = json.loads(await redis.execute("hget", "datasets", ds_id))
+        root = await find_root(ds_id, ds)
+        if root is None:
+            logger.error("update-datasets: Root of dataset {} not found.".format(ds_id))
+            reply["result"] = "Root of dataset {} not found.".format(ds_id)
+        if root not in roots:
+            reply["datasets"] = await tree(root)
+
+        # add a timestamp to the result before gathering update
+        reply["ts"] = caput_time.datetime_to_unix(datetime.datetime.utcnow())
+        reply["datasets"].update(await gather_update(ts, roots))
+
+        reply["result"] = "success"
+        logger.debug("update-datasets: Answering with {}.".format(reply))
         return response.json(reply)
-
-    if ts is 0:
-        ts = caput_time.datetime_to_unix(datetime.datetime.min)
-
-    # If the requested dataset is from a tree not known to the calling
-    # instance, send them that whole tree.
-    ds = json.loads(await redis.execute("hget", "datasets", ds_id))
-    root = await find_root(ds_id, ds)
-    if root is None:
-        logger.error("update-datasets: Root of dataset {} not found.".format(ds_id))
-        reply["result"] = "Root of dataset {} not found.".format(ds_id)
-    if root not in roots:
-        reply["datasets"] = await tree(root)
-
-    # add a timestamp to the result before gathering update
-    reply["ts"] = caput_time.datetime_to_unix(datetime.datetime.utcnow())
-    reply["datasets"].update(await gather_update(ts, roots))
-
-    reply["result"] = "success"
-    logger.debug("update-datasets: Answering with {}.".format(reply))
-    return response.json(reply)
+    except Exception as e:
+        logger.error("update-datasets: received exception %s", e)
+    finally:
+        logger.debug("update-datasets: finished")
 
 
 async def tree(root):
@@ -775,7 +815,7 @@ class Broker:
         app.run(
             workers=1,
             return_asyncio_server=True,
-            access_log=self.debug,
+            log_config={},
             debug=False,
             **server_kwargs,
         )
