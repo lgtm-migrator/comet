@@ -53,7 +53,8 @@ class RequestFormatter(logging.Formatter):
 
     def format(self, record):
         """Return a formatted string for the log.
-        Set the record.request_id
+
+        Set the record.request_id.
 
         Parameters
         ----------
