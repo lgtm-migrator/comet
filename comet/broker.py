@@ -701,12 +701,11 @@ class Broker:
     """Main class to run the comet dataset broker."""
 
     # Todo: deprecated. the kwargs are only there to allow deprecated command line options
-    def __init__(self, debug, workers, port, **kwargs):
-        self.config = {"debug": debug, "port": port, "workers": workers}
+    def __init__(self, debug, port, **kwargs):
+        self.config = {"debug": debug, "port": port}
 
         self.debug = debug
         self.startup_time = datetime.datetime.utcnow()
-        self.n_workers = workers
         self.port = None
 
     @staticmethod
@@ -780,7 +779,7 @@ class Broker:
 
 
         app.run(
-            workers=self.n_workers,
+            workers=1,
             return_asyncio_server=True,
             access_log=self.debug,
             debug=False,
