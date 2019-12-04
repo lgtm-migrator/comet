@@ -197,6 +197,7 @@ class Lock:
             logger.debug(
                 "Acquisition of lock {} cancelled. Releasing...".format(self.name)
             )
+            await task
             await self.release()
             raise
 
