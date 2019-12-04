@@ -45,19 +45,25 @@ class RequestFormatter(logging.Formatter):
         A context variable that contains the request ID.
     """
 
-    def __init__(self, request_id=0):
+    def __init__(self, request_id=0, format=format):
         self.request_id = request_id
-        super(RequestFormatter, self).__init__()
+        super().__init__(format)
 
     def format(self, record):
-        return f"[{datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}] {record.name}: [{self.request_id.get()}] {record.msg}"
+        record.request_id = self.request_id.get()
+        return logging.Formatter.format(self, record)
 
 
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
-formatter = RequestFormatter(request_id)
+#reqfilter = RequestFilter(request_id)
+#formatter = RequestFormatter(request_id)
+#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = RequestFormatter(request_id, "%(asctime)s [%(process)d] [%(name)s:%(levelname)s] [request=%(request_id)s] %(message)s")
 syslog.setFormatter(formatter)
-logger.addHandler(syslog)
+logging.getLogger("comet").setLevel(logging.DEBUG)
+#logging.getLogger("").addFilter(reqfilter)
+logging.getLogger("comet").addHandler(syslog)
 
 
 @app.middleware("request")
@@ -823,7 +829,7 @@ async def close_locks():
 # At the same time create the locks that we will need
 async def _init_redis_async(_, loop):
     logger.setLevel(logging.DEBUG)
-    logger.propagate = False
+    #logger.propagate = False
     global redis
     redis = await aioredis.create_pool(
         REDIS_SERVER, encoding="utf-8", minsize=20, maxsize=50000
