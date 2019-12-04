@@ -96,6 +96,7 @@ async def status(request):
         return response.json({"running": True, "result": "success"})
     except Exception as e:
         logger.error("status: received exception %s", e)
+        raise
     finally:
         logger.debug("status: finished")
 
@@ -120,6 +121,7 @@ async def get_states(request):
         return response.json(reply)
     except Exception as e:
         logger.error("get_states: received exception %s", e)
+        raise
     finally:
         logger.debug("get_states: finished")
 
@@ -143,6 +145,7 @@ async def get_datasets(request):
         return response.json(reply)
     except Exception as e:
         logger.error("get_datasets: received exception %s", e)
+        raise
     finally:
         logger.debug("get_datasets: finished")
 
@@ -246,6 +249,7 @@ async def register_state(request):
         return response.json(reply)
     except Exception as e:
         logger.error("register-state: received exception %s", e)
+        raise
     finally:
         logger.debug("register-state: finished")
 
@@ -315,6 +319,7 @@ async def send_state(request):
         return response.json(reply)
     except Exception as e:
         logger.error("send-state: received exception %s", e)
+        raise
     finally:
         logger.debug("send-state: finished")
 
@@ -382,6 +387,7 @@ async def register_dataset(request):
         return response.json(reply)
     except Exception as e:
         logger.error("register-dataset: received exception %s", e)
+        raise
     finally:
         logger.debug("register-dataset: finished")
 
@@ -542,6 +548,7 @@ async def request_state(request):
         return response.json(reply)
     except Exception as e:
         logger.error("request-state: received exception %s", e)
+        raise
     finally:
         logger.debug("request-state: finished")
 
@@ -712,6 +719,7 @@ async def update_datasets(request):
         return response.json(reply)
     except Exception as e:
         logger.error("update-datasets: received exception %s", e)
+        raise
     finally:
         logger.debug("update-datasets: finished")
 
