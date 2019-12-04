@@ -3,8 +3,6 @@ import asyncio
 import aioredis
 import logging
 
-from concurrent.futures import CancelledError
-
 logger = logging.getLogger(__name__)
 
 
@@ -186,12 +184,30 @@ class Lock:
         logger.debug(f"Released lock {self.name}.")
 
     async def __aenter__(self):
-        """Acquire lock."""
-        return await self.acquire()
+        """
+        Acquire lock.
+
+        Shielded from cancellation. In case of cancellation, the lock acquisition is
+        awaited anyways and then the lock is released.
+        """
+        task = asyncio.ensure_future(self.acquire())
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            logger.debug(
+                "Acquisition of lock {} cancelled. Releasing...".format(self.name)
+            )
+            await task
+            await self.release()
+            raise
 
     async def __aexit__(self, exc_type, exc, tb):
-        """Release lock."""
-        await self.release()
+        """
+        Release lock.
+
+        Shielded from cancellation.
+        """
+        await asyncio.shield(self.release())
 
 
 class Condition:
@@ -239,7 +255,8 @@ class Condition:
             The created condition variable.
         """
         self = cls(lock, name)
-        await self.lock.redis.execute("hset", "WAITING", self.condname, 0)
+        await self.redis.execute("hset", "WAITING", self.condname, 0)
+        await self.redis.execute("del", self.condname)
         return self
 
     async def close(self):
@@ -288,15 +305,18 @@ class Condition:
     async def notify_all(self):
         """Notify all processes waiting for the condition variable."""
 
+        # Notify all registered waiters. And remove them from the waiting counter.
         #
         # PSEUDOCODE:
         #
-        # if waiting[name] > 0
+        # for 1 .. waiting[name]
         #     name.append(1)  # Appends to a list called name
+        # waiting[name] = 0
         redis_notify_cond = """
-if redis.call('hget', 'WAITING', KEYS[1]) ~= 0 then
+for i=1,redis.call('hget', 'WAITING', KEYS[1]) do
     redis.call('lpush', KEYS[1], "1")
 end
+redis.call('HSET', 'WAITING', KEYS[1], 0)
         """
         if not await self.locked():
             raise LockError(
@@ -304,7 +324,17 @@ end
             )
 
         # Use the internal redis connection
-        await self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
+        task = asyncio.ensure_future(
+            self.lock._redis_conn.execute("eval", redis_notify_cond, 1, self.condname)
+        )
+        # If the request gets cancelled while doing this, we have to make sure to await
+        # the shielded task, because directly after, the context manager will release
+        # the lock.
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise
 
     async def wait(self, timeout=0):
         """
@@ -342,28 +372,48 @@ end
                 "Parameter timeout is of type {} (expected int).".format(type(timeout))
             )
 
-        # Save a reference to the connection so that we can preserve it through the release/acquire cycle
+        # Save a reference to the connection so that we can preserve it through the
+        # release/acquire cycle
         r = self.lock._redis_conn
 
         if timeout < 0:
             raise TimeoutError
 
+        # Save any caught CancelledError's in here to let them out again after cleaning
+        # up.
+        cancelled = None
+
         # register as a waiting process
+        #
+        # If this gets cancelled, we want to wait for the shielded task, before we
+        # remove our process from the waiting list again.
         #
         # PSEUDOCODE:
         #
         # waiting = dict()
         # waiting[name] += 1
-        await r.execute("hincrby", "WAITING", self.condname, 1)
-
-        # release the lock while waiting
-        cancelled = None
+        task = asyncio.ensure_future(r.execute("hincrby", "WAITING", self.condname, 1))
         try:
             # Shield against cancellation
-            await asyncio.shield(self.lock.release(close=False))
-        except CancelledError as err:
+            asyncio.shield(task)
+        except asyncio.CancelledError as err:
             # In case of cancellation, continue but remember cancellation
+            # Wait for the lock acquisition to complete
+            await task
             cancelled = err
+
+        # remember if we acquired the lock or got cancelled before
+        have_lock = False
+        if not cancelled:
+            # release the lock while waiting
+            task = asyncio.ensure_future(self.lock.release(close=False))
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                await task
+                cancelled = err
+            finally:
+                have_lock = True
 
         # Wait for notification
         #
@@ -377,40 +427,27 @@ end
             try:
                 # allow this to be cancelled, but catch to reacquire lock etc
                 ret = await r.execute("blpop", self.condname, timeout)
-            except CancelledError as err:
+            except asyncio.CancelledError as err:
                 # In case of cancellation, continue but remember cancellation
                 cancelled = err
             else:
                 if ret is None:
                     timed_out = True
 
-        # reacquire the lock
-        try:
-            # shield against cancellation
-            await asyncio.shield(self.lock.acquire(r))
-        except CancelledError as err:
-            # In case of cancellation, continue but remember cancellation
-            cancelled = err
-
-        # Decrement number of waiting processes and reset notification.
-        # Script that decrements WAITING/KEY[0] and sets KEY[0] to zero if
-        # WAITING/KEY[0] is zero:
-        #
-        # PSEUDOCODE:
-        #
-        # waiting[name] -= 1
-        # if waiting[name] > 0:
-        #     name.append(1)
-        redis_reset_cond = """
-        if redis.call('hincrby', 'WAITING', KEYS[1], -1) ~= 0 then
-            redis.call('lpush', KEYS[1], "1")
-        end
-        """
-        # shield against cancellation, but don't catch (we are done after this)
-        await asyncio.shield(r.execute("eval", redis_reset_cond, 1, self.condname))
+        if have_lock:
+            # reacquire the lock
+            task = asyncio.ensure_future(self.lock.acquire(r))
+            try:
+                # shield against cancellation
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                # In case of cancellation, wait for lock acquisition and continue but
+                # remember cancellation
+                await task
+                cancelled = err
 
         # Now we can tell the caller about everything that went wrong
-        if timed_out:
-            raise TimeoutError
         if cancelled:
             raise cancelled
+        if timed_out:
+            raise TimeoutError

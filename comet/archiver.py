@@ -99,6 +99,7 @@ class Archiver:
                         what, TYPES
                     )
                 )
+                self._pushback(what, data)
                 # slow down. this would turn into a busy wait otherwise...
                 time.sleep(self.failure_wait_time)
 

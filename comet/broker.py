@@ -13,12 +13,11 @@ from caput import time as caput_time
 from math import ceil
 from socket import socket
 from threading import Thread
-from time import sleep
 
 import contextvars
 from sanic import Sanic
 from sanic import response
-from concurrent.futures import CancelledError
+from sanic.log import logger
 
 from . import __version__
 from .manager import Manager, CometError, TIMESTAMP_FORMAT
@@ -33,24 +32,37 @@ app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 120
 app.config.RESPONSE_TIMEOUT = 120
 
-request_thread_id = contextvars.ContextVar("request_thread_id", default=0)
+
+request_id = contextvars.ContextVar("request_id", default=0)
 
 
 class RequestFormatter(logging.Formatter):
-    """Logging formatter for Request Ids."""
+    """Logging formatter that adds a request_id.
 
-    def __init__(self, request_thread_id=contextvars.ContextVar("request_thread_id", default=0)):
-            self.thread_id = request_thread_id
-            super(RequestFormatter, self).__init__()
+    Parameters
+    ----------
+    request_id : ContextVar
+        A context variable that contains the request ID.
+    """
+
+    def __init__(self, request_id=0):
+        self.request_id = request_id
+        super(RequestFormatter, self).__init__()
 
     def format(self, record):
-        return f"[{datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}] {record.name}: [{self.thread_id.get()}] {record.msg}"
+        return f"[{datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')}] {record.name}: [{self.request_id.get()}] {record.msg}"
 
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
-formatter = RequestFormatter(request_thread_id)
+formatter = RequestFormatter(request_id)
 syslog.setFormatter(formatter)
 logger.addHandler(syslog)
+
+
+@app.middleware("request")
+async def set_request_id(request):
+    """Set a unique ID for each request."""
+    request_id.set(random.getrandbits(40))
 
 
 @app.route("/status", methods=["GET"])
@@ -62,7 +74,6 @@ async def status(request):
 
     curl -X GET http://localhost:12050/status
     """
-    request_thread_id.set(random.getrandbits(40))
     logger.debug("status: Received status request")
     return response.json({"running": True, "result": "success"})
 
@@ -76,7 +87,6 @@ async def get_states(request):
 
     curl -X GET http://localhost:12050/states
     """
-    request_thread_id.set(random.getrandbits(40))
 
     logger.debug("status: Received states request")
 
@@ -96,7 +106,6 @@ async def get_datasets(request):
 
     curl -X GET http://localhost:12050/datasets
     """
-    request_thread_id.set(random.getrandbits(40))
     logger.debug("status: Received datasets request")
 
     datasets = await redis.execute("hkeys", "datasets")
@@ -174,7 +183,6 @@ async def register_state(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    request_thread_id.set(random.getrandbits(40))
     hash = request.json["hash"]
     logger.info("/register-state {}".format(hash))
     reply = dict(result="success")
@@ -198,13 +206,10 @@ async def register_state(request):
                     )
 
             # otherwise, request it now
-            await r.execute("hset", "requested_states", hash, time.time())
             reply["request"] = "get_state"
             reply["hash"] = hash
-            logger.debug(
-                "register-state: Asking for state, hash: {}".format(hash)
-            )
-
+            logger.debug("register-state: Asking for state, hash: {}".format(hash))
+            await r.execute("hset", "requested_states", hash, time.time())
     return response.json(reply)
 
 
@@ -214,7 +219,6 @@ async def send_state(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    request_thread_id.set(random.getrandbits(40))
     hash = request.json["hash"]
     state = request.json["state"]
     if state:
@@ -224,6 +228,10 @@ async def send_state(request):
     logger.info("/send-state {} {}".format(type, hash))
     reply = dict()
     archive_state = False
+
+    # In case the shielded part of this endpoint gets cancelled, we ignore it but
+    # re-raise the CancelledError in the end
+    cancelled = None
 
     # Lock states and check if we know this state already.
     async with lock_states as r:
@@ -246,13 +254,38 @@ async def send_state(request):
             await r.execute("hset", "states", hash, json.dumps(state))
             reply["result"] = "success"
             archive_state = True
-            await cond_states.notify_all()
+            # From here on, cancellations (e.g. by the client) are ignored, because the
+            # state is in redis already.
+            task = asyncio.ensure_future(cond_states.notify_all())
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                logger.info(
+                    "/send-state {}: Notification got cancelled. Ignoring...".format(
+                        hash
+                    )
+                )
+                cancelled = err
+                # Wait for the shielded task before releasing lock
+                await task
 
     # Remove it from the set of requested states (if it's in there.)
-    await redis.execute("hdel", "requested_states", hash)
+    try:
+        await asyncio.shield(redis.execute("hdel", "requested_states", hash))
+    except asyncio.CancelledError as err:
+        logger.info(
+            "/send-state {}: Cancelled while removing requested state. Ignoring...".format(
+                hash
+            )
+        )
+        cancelled = err
 
     if archive_state:
-        await archive("state", request.json)
+        await asyncio.shield(archive("state", request.json))
+
+    # Done cleaning up, re-raise if this request got cancelled.
+    if cancelled:
+        raise cancelled
     return response.json(reply)
 
 
@@ -262,7 +295,6 @@ async def register_dataset(request):
 
     This should only ever be called by kotekan's datasetManager.
     """
-    request_thread_id.set(random.getrandbits(40))
     hash = request.json["hash"]
     logger.info("/register-dataset {}".format(hash))
     ds = request.json["ds"]
@@ -272,6 +304,10 @@ async def register_dataset(request):
     if dataset_valid:
         root = await find_root(hash, ds)
     archive_ds = False
+
+    # In case the shielded part of this endpoint gets cancelled, we ignore it but
+    # re-raise the CancelledError in the end
+    cancelled = None
 
     # Lack datasets and check if dataset already known.
     async with lock_datasets as r:
@@ -285,7 +321,7 @@ async def register_dataset(request):
                     "error: hash collision ({})\nTrying to register the following dataset:\n{},\nbut a different one is know to "
                     "the broker with the same hash:\n{}".format(hash, ds, found)
                 )
-                logger.warning("send-state: {}".format(reply["result"]))
+                logger.warning("register-dataset: {}".format(reply["result"]))
             else:
                 reply["result"] = "success"
         elif dataset_valid and root is not None:
@@ -294,7 +330,19 @@ async def register_dataset(request):
 
             reply["result"] = "success"
             archive_ds = True
-            await cond_datasets.notify_all()
+
+            # From here on ignore cancellations and finish anyways
+            task = asyncio.ensure_future(cond_datasets.notify_all())
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError as err:
+                logger.info(
+                    "/register-dataset {}: Notification got cancelled. Ignoring...".format(
+                        hash
+                    )
+                )
+                cancelled = err
+                await task
         else:
             reply["result"] = "Dataset {} invalid.".format(hash)
             logger.debug(
@@ -304,7 +352,11 @@ async def register_dataset(request):
             )
 
     if archive_ds:
-        await archive("dataset", request.json)
+        await asyncio.shield(archive("dataset", request.json))
+
+    # Done cleaning up, re-raise if this request got cancelled.
+    if cancelled:
+        raise cancelled
 
     return response.json(reply)
 
@@ -438,7 +490,6 @@ async def request_state(request):
     curl -d '{"state_id":42}' -X POST -H "Content-Type: application/json"
          http://localhost:12050/request-state
     """
-    request_thread_id.set(random.getrandbits(40))
     id = request.json["id"]
     logger.debug("/request-state {}".format(id))
 
@@ -481,7 +532,7 @@ async def wait_for_dset(id):
                         )
                     )
                     return False
-                except CancelledError:
+                except asyncio.CancelledError:
                     logger.warning(
                         "wait_for_ds: Request cancelled while waiting for dataset {}".format(
                             id
@@ -534,7 +585,7 @@ async def wait_for_state(id):
                         )
                     )
                     return False
-                except CancelledError:
+                except asyncio.CancelledError:
                     logger.warning(
                         "wait_for_ds: Request cancelled while waiting for state {}".format(
                             id
@@ -584,7 +635,6 @@ async def update_datasets(request):
     -H "Content-Type: application/json"
     http://localhost:12050/update-datasets
     """
-    request_thread_id.set(random.getrandbits(40))
     ds_id = request.json["ds_id"]
     ts = request.json["ts"]
     roots = request.json["roots"]
@@ -677,9 +727,8 @@ class Broker:
     def _wait_and_register(self):
 
         # Wait until the port has been set (meaning comet is available)
-        # TODO this should be 1 again once we have a semaphore on worker start
         while not self.port:
-            time.sleep(6)
+            time.sleep(1)
 
         manager = Manager("localhost", self.port)
         try:
@@ -720,6 +769,11 @@ class Broker:
             server_kwargs["host"] = "0.0.0.0"
             server_kwargs["port"] = port
         self.port = port
+
+        # create a semaphore that the workers wait on on start
+        r = redis_sync.Redis(REDIS_SERVER[0], REDIS_SERVER[1])
+        r.set("semaphore_worker_start_counter", self.n_workers)
+        r.set("semaphore_worker_start_total", self.n_workers)
 
         app.run(
             workers=self.n_workers,
@@ -777,9 +831,25 @@ async def _init_redis_async(_, loop):
     )
     await create_locks()
 
-    # TODO this is to make sure no broker creates the lock after it got acquired.
-    #  Replace with a semaphore that waits for all other workers.
-    await asyncio.sleep(5)
+    # Wait for semaphore. This is to make sure no broker creates the lock after it got acquired.
+    # TODO: refactor and put into redis_async_locks
+    redis_wait_semaphore = """
+    if redis.call('INCRBY', KEYS[1], -1) == 0 then
+        local n_workers = tonumber(redis.call('GET', KEYS[3]))
+        for i=1,n_workers do
+            redis.call('RPUSH', KEYS[2], '1')
+        end
+    end
+    """
+    await redis.execute(
+        "eval",
+        redis_wait_semaphore,
+        3,
+        "semaphore_worker_start_counter",
+        "semaphore_worker_start",
+        "semaphore_worker_start_total",
+    )
+    await redis.execute("BRPOP", "semaphore_worker_start", 0)
 
 
 async def _close_redis_async(_, loop):
