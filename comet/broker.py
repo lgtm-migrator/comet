@@ -38,8 +38,9 @@ request_id = contextvars.ContextVar("request_id", default=0)
 
 lock_datasets = None
 lock_states = None
-cond_states = None
-cond_datasets = None
+
+waiting_datasets = {}
+waiting_states = {}
 
 
 class RequestFormatter(logging.Formatter):
@@ -297,7 +298,8 @@ async def send_state(request):
                 reply["result"] = "success"
                 archive_state = True
 
-                cond_states.notify_all()
+                # Notify anything waiting for this state to arrive
+                signal_created(hash, "state", lock_states, waiting_states)
 
         # Remove it from the set of requested states (if it's in there.)
         try:
@@ -367,7 +369,8 @@ async def register_dataset(request):
                 reply["result"] = "success"
                 archive_ds = True
 
-                cond_datasets.notify_all()
+                # Notify anything waiting for this dataset to arrive
+                signal_created(hash, "dataset", lock_datasets, waiting_datasets)
 
             else:
                 reply["result"] = "Dataset {} invalid.".format(hash)
@@ -553,113 +556,102 @@ async def request_state(request):
         logger.debug("request-state: finished")
 
 
-async def wait_for_dset(id):
-    """Wait until the given dataset is present."""
-    found = True
-    if not await redis.execute("hexists", "datasets", id):
-        # wait for half of kotekans timeout before we admit we don't have it
-        logger.debug("wait_for_ds: Waiting for dataset {}".format(id))
-        wait_time = WAIT_TIME
-        start_wait = time.time()
-        while True:
-            # did someone send it to us by now?
-            async with cond_datasets:
-                try:
-                    await asyncio.wait_for(cond_datasets.wait(), wait_time)
-                except asyncio.TimeoutError:
-                    await asyncio.sleep(0)
-                    logger.warning(
-                        "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
-                            WAIT_TIME, id
-                        )
-                    )
-                    return False
-                except asyncio.CancelledError:
-                    logger.warning(
-                        "wait_for_ds: Request cancelled while waiting for dataset {}".format(
-                            id
-                        )
-                    )
-                    await lock_datasets.acquire()
-                    return False
+def signal_created(id, name, lock, event_dict):
+    """Signal when an object has been created in redis.
 
-                if await redis.execute("hexists", "datasets", id):
-                    logger.debug("wait_for_ds: Found dataset {}".format(id))
-                    break
+    Parameters
+    ----------
+    id : str
+        Hash key name.
+    name : str
+        Name of object type.
+    lock : asyncio.Lock
+        Lock to protect event creation/signalling.
+    event_dict : dict
+        A dictionary to find events for signalling creation.
+    """
 
-                # we have to continue waiting. Count down on the wait_time.
-                wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+    if not lock.locked():
+        raise RuntimeError(f"lock must be held when signalling {name} creation.")
 
-                # 0 means "no timeout" we don't want that to happen by accident
-                if wait_time == 0:
-                    logger.warning(
-                        "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
-                            WAIT_TIME, id
-                        )
-                    )
-                    return False
-        if not await redis.execute("hexists", "datasets", id):
-            logger.warning(
-                "wait_for_ds: Timeout ({}s) when waiting for dataset {}".format(
-                    WAIT_TIME, id
-                )
-            )
-            found = False
-    return found
+    # Notify anything waiting for this dataset to arrive
+    if id in event_dict:
+        event_dict[id].set()
+        del event_dict[id]
+        logger.debug(
+            f"Signalled tasks waiting on creation of {name} {id} and removed event."
+        )
 
 
-async def wait_for_state(id):
-    """Wait until the given state is present."""
-    found = True
-    if not await redis.execute("hexists", "states", id):
-        # wait for half of kotekans timeout before we admit we don't have it
-        logger.debug("wait_for_state: Waiting for state {}".format(id))
-        wait_time = WAIT_TIME
-        start_wait = time.time()
-        while True:
-            # did someone send it to us by now?
-            async with cond_states:
-                try:
-                    await asyncio.wait_for(cond_states.wait(), wait_time)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
-                            WAIT_TIME, id
-                        )
-                    )
-                    return False
-                except asyncio.CancelledError:
-                    logger.warning(
-                        "wait_for_ds: Request cancelled while waiting for state {}".format(
-                            id
-                        )
-                    )
-                    await lock_states.acquire()
-                    return False
-                if await redis.execute("hexists", "states", id):
-                    logger.debug("wait_for_ds: Found state {}".format(id))
-                    break
+async def wait_for_x(id, name, lock, redis_hash, event_dict):
+    """Wait until a given object is present in redis.
 
-                # we have to continue waiting. Count down on the wait_time.
-                wait_time = int(ceil(WAIT_TIME - (time.time() - start_wait)))
+    Parameters
+    ----------
+    id : str
+        Hash key name.
+    name : str
+        Name of object type.
+    lock : asyncio.Lock
+        Lock to protect event creation.
+    redis_hash : str
+        Name of redis hash map.
+    event_dict : dict
+        A dictionary to add events for signalling creation.
 
-                # 0 means "no timeout" we don't want that to happen by accident
-                if wait_time == 0:
-                    logger.warning(
-                        "wait_for_ds: Timeout ({}s) when waiting for state {}".format(
-                            WAIT_TIME, id
-                        )
-                    )
-                    return False
-        # No lock here, cannot just use r
-        if not await redis.execute("hexists", "states", id):
-            logger.warning(
-                "wait_for_state: Timeout ({}s) when waiting for state {}".format(
-                    WAIT_TIME, id
-                )
-            )
-            found = False
-    return found
+    Returns
+    -------
+    found : bool
+        True if found, False if timeout first.
+    """
+
+    # Test first before acquiring the lock as it means we might not need to wait
+    if await redis.execute("hexists", redis_hash, id):
+        return True
+
+    logger.debug(f"wait_for_{name}: Waiting for {name} {id}")
+
+    async with lock:
+        # While we are locked, test again to ensure that we have the dataset
+        if await redis.execute("hexists", redis_hash, id):
+            return True
+
+        if id not in event_dict:
+            event_dict[id] = asyncio.Event()
+
+        wait_event = event_dict[id]
+
+    try:
+        await asyncio.wait_for(wait_event.wait(), WAIT_TIME)
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"wait_for_{name}: Timeout ({WAIT_TIME}s) when waiting for {name} {id}"
+        )
+        return False
+    except asyncio.CancelledError:
+        logger.warning(
+            f"wait_for_{name}: Request cancelled when waiting for {name} {id}"
+        )
+        return False
+
+    if await redis.execute("hexists", "datasets", id):
+        logger.debug(f"wait_for_{name}: Found {name} {id}")
+        return True
+    else:
+        logger.error(
+            f"wait_for_{name}: Could not find {name} {id} "
+            "after being signalled. Should not get here."
+        )
+        return False
+
+
+# Specialise for datasets and states
+wait_for_dset = lambda id: wait_for_x(
+    id, "dataset", lock_datasets, "datasets", waiting_datasets
+)
+wait_for_state = lambda id: wait_for_x(
+    id, "state", lock_states, "states", waiting_states
+)
 
 
 @app.route("/update-datasets", methods=["POST"])
@@ -722,6 +714,19 @@ async def update_datasets(request):
         raise
     finally:
         logger.debug("update-datasets: finished")
+
+
+@app.route("/internal-state", methods=["GET"])
+async def internal_state(request):
+    """Report on the internal state for debugging."""
+
+    state = {
+        "datasets_locked": lock_datasets.locked(),
+        "states_locked": lock_states.locked(),
+        "waiting_datasets": list(waiting_datasets.keys()),
+        "waiting_states": list(waiting_states.keys()),
+    }
+    return response.json(state)
 
 
 async def tree(root):
