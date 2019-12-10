@@ -32,19 +32,19 @@ app = Sanic(__name__)
 app.config.REQUEST_TIMEOUT = 120
 app.config.RESPONSE_TIMEOUT = 120
 
-
-request_id = contextvars.ContextVar("request_id", default=0)
-
-
 lock_datasets = None
 lock_states = None
 
 waiting_datasets = {}
 waiting_states = {}
 
+# will have a unique value for every request sent to the broker
+# used for tracking sequences of events in the logs
+request_id = contextvars.ContextVar("request_id", default=0)
+
 
 class RequestFormatter(logging.Formatter):
-    """Logging formatter that adds a request_id.
+    """Logging formatter that adds a request_id to the logger's record.
 
     Parameters
     ----------
@@ -73,18 +73,20 @@ class RequestFormatter(logging.Formatter):
         return logging.Formatter.format(self, record)
 
 
+"""
+This associates an id, unique for every request thread, with the log formatter.
+Every request has its request id integrated into its logging,
+without anything required of the developer or at the time of writing the log msg.
+Formatters have to be set on log handlers, and then log handlers are added to loggers.
+"""
 logger = logging.getLogger(__name__)
 syslog = logging.StreamHandler()
-# reqfilter = RequestFilter(request_id)
-# formatter = RequestFormatter(request_id)
-# formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 formatter = RequestFormatter(
     request_id,
     "%(asctime)s [%(process)d] [%(name)s:%(levelname)s] [request=%(request_id)s] %(message)s",
 )
 syslog.setFormatter(formatter)
 logging.getLogger("comet").setLevel(logging.DEBUG)
-# logging.getLogger("").addFilter(reqfilter)
 logging.getLogger("").addHandler(syslog)
 
 
