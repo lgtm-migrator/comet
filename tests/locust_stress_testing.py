@@ -144,7 +144,7 @@ class DummyManager(DummyClientLocust):
     task_set = MyTasks
 
     def setup(self):
-        """Set-up operations before any of the locusts start up."""
+        """Set up operations before any of the locusts start up."""
         assert os.path.isfile(CHIMEDBRC), "Could not find {}.".format(CHIMEDBRC)
         os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
 
