@@ -50,6 +50,8 @@ class RequestFormatter(logging.Formatter):
     ----------
     request_id : ContextVar
         A context variable that contains the request ID.
+    format : str
+        A format string which represents how the log should be formatted.
     """
 
     def __init__(self, request_id=0, format=format):
@@ -57,7 +59,16 @@ class RequestFormatter(logging.Formatter):
         super().__init__(format)
 
     def format(self, record):
-        """Add the request_id and apply the format."""
+        """Return a formatted string for the log.
+
+        Set the record.request_id.
+
+        Parameters
+        ----------
+        record : dict
+            A set of relevant attributes of the logged message
+            that are parsed into the format string.
+        """
         record.request_id = self.request_id.get()
         return logging.Formatter.format(self, record)
 
