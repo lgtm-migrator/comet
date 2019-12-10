@@ -48,12 +48,6 @@ parser.add_argument(
         nargs='?',
         const=True,
         )
-parser.add_argument(
-        "-w", "--workers",
-        help="set number of sanic webserver workers (default: 4)",
-        default=4,
-        type=int,
-        )
 
 parsed_args = parser.parse_args()
 
