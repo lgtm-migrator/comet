@@ -647,7 +647,7 @@ async def wait_for_x(id, name, lock, redis_hash, event_dict):
         )
         return False
 
-    if await redis.execute("hexists", "datasets", id):
+    if await redis.execute("hexists", redis_hash, id):
         logger.debug(f"wait_for_{name}: Found {name} {id}")
         return True
     else:
