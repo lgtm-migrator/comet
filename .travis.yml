@@ -56,7 +56,7 @@ script:
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
-    - pytest -s
+    - pytest -x
 
     # Clone kotekan and run some of its tests
     - mkdir skyfield_data

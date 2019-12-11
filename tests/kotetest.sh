@@ -9,4 +9,4 @@ cmake -DBOOST_TESTS=ON ..
 make dataset_broker_producer dataset_broker_producer2 dataset_broker_consumer
 cd ../tests
 export PYTHONPATH=../python:$PYTHONPATH
-pytest -s test_dataset_broker.py
+pytest -xs test_dataset_broker.py
