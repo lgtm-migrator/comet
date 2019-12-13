@@ -1,5 +1,42 @@
 # Changelog
 
+All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+
+## 2019.12.0 (2019-12-13)
+
+
+### Bug Fixes
+
+* **__init__:** only import Broker for python>2 ([bc6e232](https://github.com/chime-experiment/comet/commit/bc6e232))
+* **broker:** disable sanic debug mode ([ecb4d33](https://github.com/chime-experiment/comet/commit/ecb4d33))
+* **broker:** don't wait for root ds of invalid ds ([14cb078](https://github.com/chime-experiment/comet/commit/14cb078))
+* **broker:** ignore cancellation in endpoints after point of no return ([7e98366](https://github.com/chime-experiment/comet/commit/7e98366))
+* **broker:** remove unsued /register-external-state ([bb77294](https://github.com/chime-experiment/comet/commit/bb77294))
+* **broker:** set requested state as late as possible ([936f7d9](https://github.com/chime-experiment/comet/commit/936f7d9))
+* **broker:** set sanic timeouts to 120s ([88183a1](https://github.com/chime-experiment/comet/commit/88183a1))
+* **broker:** sort out task gathering ([6156769](https://github.com/chime-experiment/comet/commit/6156769))
+* **broker:** use correct TimeoutError ([e7eb4ec](https://github.com/chime-experiment/comet/commit/e7eb4ec))
+* **init:** don't import classes here ([e5ccf95](https://github.com/chime-experiment/comet/commit/e5ccf95))
+* **manager:** change 'types' to 'type' ([4a14d39](https://github.com/chime-experiment/comet/commit/4a14d39))
+* **broker:** move type from request into the state ([e90c531](https://github.com/chime-experiment/comet/commit/e90c531))
+* **manager:** change to use MurmurHash3 for hashing ([325154c](https://github.com/chime-experiment/comet/commit/325154c))
+* **manager:** change type of field hash to str ([3ec6578](https://github.com/chime-experiment/comet/commit/3ec6578))
+* **manager:** ConnectionError handling ([e90febe](https://github.com/chime-experiment/comet/commit/e90febe))
+* **manager:** make hash function python2.7 compatible ([4832a2f](https://github.com/chime-experiment/comet/commit/4832a2f))
+
+### Features
+
+* **archiver:** take input from redis ([6eeac59](https://github.com/chime-experiment/comet/commit/6eeac59))
+* **broker:** add port option ([b14b212](https://github.com/chime-experiment/comet/commit/b14b212)), closes [#40](https://github.com/chime-experiment/comet/issues/40)
+* **broker:** add simple /status ([909af47](https://github.com/chime-experiment/comet/commit/909af47)), closes [#36](https://github.com/chime-experiment/comet/issues/36)
+* **broker:** add timestamp to requested_states ([e0d477f](https://github.com/chime-experiment/comet/commit/e0d477f))
+* **broker:** be more verbose about hash collision error ([46454ca](https://github.com/chime-experiment/comet/commit/46454ca))
+* **broker:** use redis for shared state ([3b2e36b](https://github.com/chime-experiment/comet/commit/3b2e36b))
+* **broker:** use semaphore for worker startup ([1aa3fd6](https://github.com/chime-experiment/comet/commit/1aa3fd6))
+* **thread_id:** add logging adapter for thread ids ([41a1a6e](https://github.com/chime-experiment/comet/commit/41a1a6e))
+
+# Changelog
+
 
 
 ## Version 2019.05 (2019-05-28)
