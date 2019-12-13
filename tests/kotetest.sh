@@ -13,4 +13,4 @@ more /proc/cpuinfo | grep flags
 
 cd ../tests
 export PYTHONPATH=../python:$PYTHONPATH
-pytest -xs test_dataset_broker.py
+pytest -x test_dataset_broker.py
