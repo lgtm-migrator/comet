@@ -144,7 +144,7 @@ class DummyManager(DummyClientLocust):
     task_set = MyTasks
 
     def setup(self):
-        """Set-up operations before any of the locusts start up."""
+        """Set up operations before any of the locusts start up."""
         assert os.path.isfile(CHIMEDBRC), "Could not find {}.".format(CHIMEDBRC)
         os.environ["CHIMEDB_TEST_RC"] = CHIMEDBRC
 
@@ -153,7 +153,7 @@ class DummyManager(DummyClientLocust):
 
         # TravisCI has 2 cores available
         # change the -w flag to (# of cores available - 1)
-        self.broker = Popen(["comet", "--debug", "0", "-t", "2", "-p", PORT, "-w", "1"])
+        self.broker = Popen(["comet", "--debug", "0", "-t", "2", "-p", PORT])
         time.sleep(5)
 
     def teardown(self):

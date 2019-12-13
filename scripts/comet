@@ -8,8 +8,6 @@ from comet.broker import Broker
 DEFAULT_PORT = 12050
 LOG_FORMAT = "[%(asctime)s] %(name)s: %(message)s"
 
-logging.basicConfig(format=LOG_FORMAT)
-
 
 def str2bool(v):
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
@@ -47,12 +45,6 @@ parser.add_argument(
         type=str2bool,
         nargs='?',
         const=True,
-        )
-parser.add_argument(
-        "-w", "--workers",
-        help="set number of sanic webserver workers (default: 4)",
-        default=4,
-        type=int,
         )
 
 parsed_args = parser.parse_args()

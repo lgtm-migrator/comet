@@ -2,6 +2,7 @@ aioredis
 redis
 requests
 sanic ; python_version >= '3.6'
+multidict==4.6.1 # workaround for sanic installation bug
 caput @ git+https://github.com/radiocosmology/caput.git
 mmh3
 peewee
@@ -9,4 +10,4 @@ requests
 pymysql
 orjson
 chimedb @ git+https://github.com/chime-experiment/chimedb.git
-chimedb.dataset @ git+https://github.com/chime-experiment/chimedb_dataset.git@rn/2019.11
+chimedb.dataset @ git+https://github.com/chime-experiment/chimedb_dataset.git
