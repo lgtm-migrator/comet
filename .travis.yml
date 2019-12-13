@@ -56,10 +56,11 @@ script:
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
-    - pytest -s
+    - pytest -x
 
     # Clone kotekan and run some of its tests
-    - ./kotetest.sh
+    - mkdir skyfield_data
+    - CAPUT_SKYFIELD_PATH=skyfield_data ./kotetest.sh
     - ccache -s || true
 
     # run locust stress tests
