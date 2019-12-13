@@ -2,6 +2,7 @@ aioredis
 redis
 requests
 sanic ; python_version >= '3.6'
+multidict==4.6.1 # workaround for sanic installation bug
 caput @ git+https://github.com/radiocosmology/caput.git
 mmh3
 peewee

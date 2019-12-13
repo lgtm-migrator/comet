@@ -13,7 +13,6 @@ import mmh3
 REGISTER_STATE = "/register-state"
 REGISTER_DATASET = "/register-dataset"
 SEND_STATE = "/send-state"
-REGISTER_EXTERNAL_STATE = "/register-external-state"
 STATUS = "/status"
 STATES = "/states"
 DATASETS = "/datasets"
@@ -70,7 +69,7 @@ class Manager:
         self.state_reg_time = dict()
         self.datasets = dict()
 
-    def register_start(self, start_time, version):
+    def register_start(self, start_time, version, config=None):
         """Register a startup with the broker.
 
         This should never be called twice with different parameters. If you want to register a
@@ -78,6 +77,11 @@ class Manager:
 
         This does not attach the state to a dataset. If that's what you want to do, use
         :function:`register_state` instead.
+
+        .. deprecated:: 2019.11
+          `register_config(config)` and `register_start(start_time, version)` will be
+          removed in a future version. It is replaced with `register_start(start_time,
+          version, config)` to simplify the API.
 
         Parameters
         ----------
@@ -87,6 +91,8 @@ class Manager:
             A unique string identifying the version of this software. This should include version
             tags, and if applicable git commit hashes as well as the "dirty" state of the local
             working tree.
+        config : dict
+            The config should be JSON-serializable, preferably a dictionary.
 
         Raises
         ------
@@ -97,8 +103,14 @@ class Manager:
             If there was an error in registering stuff with the broker.
         :class:`ConnectionError`
             If the broker can't be reached.
-
         """
+        # Todo: deprecated:
+        if config is None:
+            logger.warning(
+                "DEPRECATED! `register_config(config)` and `register_start(start_time, "
+                "version)` will be removed in a future version. It is replaced with "
+                "`register_start(start_time, version, config)` to simplify the API."
+            )
         if not isinstance(start_time, datetime.datetime):
             raise ManagerError(
                 "start_time needs to be of type 'datetime.datetime' (is {}).".format(
@@ -115,6 +127,41 @@ class Manager:
             raise ManagerError(
                 "A startup was already registered, this can only be done once."
             )
+        # Todo: deprecated:
+        if config:
+            if not isinstance(config, dict):
+                raise ManagerError(
+                    "config needs to be a dictionary (is `{}`).".format(
+                        type(config).__name__
+                    )
+                )
+
+            # get name of callers module
+            name = inspect.getmodule(inspect.stack()[1][0]).__name__
+            if name == "__main__":
+                name = inspect.getmodule(inspect.stack()[1][0]).__file__
+            logger.info("Registering config for {}.".format(name))
+
+            state = copy.deepcopy(config)
+
+            state["type"] = "config_{}".format(name)
+            state_id = self._make_hash(state)
+
+            request = {"hash": state_id}
+            reply = self._send(REGISTER_STATE, request)
+
+            # Does the broker ask for the state?
+            if reply.get("request") == "get_state":
+                if reply.get("hash") != state_id:
+                    raise BrokerError(
+                        "The broker is asking for state {} when state {} (config) "
+                        "was registered.".format(reply.get("hash"), state_id)
+                    )
+                self._send_state(state_id, state)
+
+            self.states[state_id] = state
+            self.config_state = state_id
+            self.state_reg_time[state_id] = datetime.datetime.utcnow()
 
         # get name of callers module
         name = inspect.getmodule(inspect.stack()[1][0]).__name__
@@ -127,6 +174,8 @@ class Manager:
             "version": version,
             "type": "start_{}".format(name),
         }
+        if config:
+            state["config_state"] = self.config_state
         state_id = self._make_hash(state)
 
         request = {"hash": state_id}
@@ -156,6 +205,11 @@ class Manager:
         This does not attach the state to a dataset. If that's what you want to do, use
         :function:`register_state` instead.
 
+        .. deprecated:: 2019.11
+          `register_config(config)` and `register_start(start_time, version)` will be
+          removed in a future version. It is replaced with `register_start(start_time,
+          version, config)` to simplify the API.
+
         Parameters
         ----------
         config : dict
@@ -171,6 +225,11 @@ class Manager:
             If the broker can't be reached.
 
         """
+        logger.warning(
+            "DEPRECATED! `register_config(config)` and `register_start(start_time, "
+            "version)` will be removed in a future version. It is replaced with "
+            "`register_start(start_time, version, config)` to simplify the API."
+        )
         if not isinstance(config, dict):
             raise ManagerError(
                 "config needs to be a dictionary (is `{}`).".format(
@@ -263,6 +322,7 @@ class Manager:
             state["type"] = state_type
         elif state:
             state_type = state["type"]
+
         if state_id is None:
             state_id = self._make_hash(state)
 

@@ -3,6 +3,7 @@ os: linux
 sudo: required
 dist: bionic
 cache:
+  apt: true
   pip: true
   directories:
     - $HOME/.ccache
@@ -48,17 +49,18 @@ before_script:
     - ccache -s || true
 
 script:
-    # Run pycodestyle on all .py files in all subfolders
+    # Run black and pydocstyle on all .py files in all subfolders
     - black --check .
     - find . -type d -o ! -name versioneer.py ! -name test_*.py ! -name _version.py -name \*.py -exec pydocstyle --convention=numpy --add-ignore=D105,D202 {} +
 
     # Run tests
     - export PYTHONPATH=.:$PYTHONPATH
     - cd tests
-    - pytest -s
+    - pytest -x
 
     # Clone kotekan and run some of its tests
-    - ./kotetest.sh
+    - mkdir skyfield_data
+    - CAPUT_SKYFIELD_PATH=skyfield_data ./kotetest.sh
     - ccache -s || true
 
     # run locust stress tests
