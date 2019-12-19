@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [2019.12.1](https://github.com/chime-experiment/comet/compare/2019.12.0...2019.12.1) (2019-12-19)
+
+
+### Bug Fixes
+
+* **broker:** don't save invalid datasets ([d507014](https://github.com/chime-experiment/comet/commit/d507014))
+
+
+### Features
+
+* **broker:** remove debug log from update-datasets ([46e4dc6](https://github.com/chime-experiment/comet/commit/46e4dc6))
+
 ## 2019.12.0 (2019-12-13)
 
 
