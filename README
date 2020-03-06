@@ -1,0 +1,15 @@
+Installation
+------------
+Comet requires a running redis server:
+
+  sudo apt-get install redis
+  sudo systemctl start redis
+  
+Download comet and install:
+
+  git clone https://github.com/chime-experiment/comet.git
+  cd comet
+  sudo pip3 install -r requirements.txt
+  
+Running Comet
+-------------
