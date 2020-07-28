@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file. See [standa
 
 
 
+### [20.7.0](https://github.com/chime-experiment/comet/compare/20.6.1...20.7.0) (2020-07-28)
+
+
+### Features
+
+* **broker:** add debug logging: ds check success ([30557f9](https://github.com/chime-experiment/comet/commit/30557f9c56f1d0d563393a0c9854b7f790ec57bf))
+* **broker:** simplify dataset update ([98b7719](https://github.com/chime-experiment/comet/commit/98b771932811a7b3dbca584ef95ce53e997d00f7))
+
+
+
 ### [20.6.1](https://github.com/chime-experiment/comet/compare/20.6.0...20.6.1) (2020-06-18)
 
 
