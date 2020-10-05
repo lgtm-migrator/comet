@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. See [standa
 
 
 
+### [20.10.0](https://github.com/chime-experiment/comet/compare/v20.7.0...v20.10.0) (2020-10-05)
+
+
+### Bug Fixes
+
+* **broker:** datasets get cached as not found permanently ([#88](https://github.com/chime-experiment/comet/issues/88)) ([606b6f1](https://github.com/chime-experiment/comet/commit/606b6f1959580d59df3c9c55922cbf6f2a01a697))
+
+
+
 ### [20.7.0](https://github.com/chime-experiment/comet/compare/20.6.1...20.7.0) (2020-07-28)
 
 
