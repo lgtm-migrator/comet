@@ -17,6 +17,7 @@ import asyncio
 import contextvars
 import datetime
 import json
+import ujson
 import random
 import logging
 import redis as redis_sync
@@ -175,6 +176,8 @@ async def get_datasets(request):
 
     curl -X GET http://localhost:12050/datasets
     """
+    def json_dumps(*args, **kwargs):
+        return ujson.dumps(*args, **kwargs, ensure_ascii=False, reject_bytes=False)
     try:
         logger.debug("get_datasets: Received datasets request")
 
@@ -182,7 +185,7 @@ async def get_datasets(request):
         reply = {"result": "success", "datasets": datasets}
 
         logger.debug("datasets: {}".format(datasets))
-        return response.json(reply)
+        return response.json(reply, dumps=json_dumps)
     except Exception as e:
         logger.error(
             "datasets: threw exception {} while handling request from {}",
