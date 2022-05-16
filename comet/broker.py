@@ -59,6 +59,8 @@ waiting_states = {}
 # used for tracking sequences of events in the logs
 request_id = contextvars.ContextVar("request_id", default=0)
 
+def json_dumps(*args, **kwargs):
+    return ujson.dumps(*args, **kwargs, ensure_ascii=False, reject_bytes=False)
 
 class RequestFormatter(logging.Formatter):
     """Logging formatter that adds a request_id to the logger's record.
@@ -154,7 +156,7 @@ async def get_states(request):
         reply = {"result": "success", "states": states}
 
         logger.debug("states: {}".format(states))
-        return response.json(reply)
+        return response.json(reply, dumps=json_dumps)
     except Exception as e:
         logger.error(
             "states: threw exception {} while handling request from {}",
@@ -176,8 +178,6 @@ async def get_datasets(request):
 
     curl -X GET http://localhost:12050/datasets
     """
-    def json_dumps(*args, **kwargs):
-        return ujson.dumps(*args, **kwargs, ensure_ascii=False, reject_bytes=False)
     try:
         logger.debug("get_datasets: Received datasets request")
 
@@ -857,8 +857,6 @@ class Broker:
 
         app.run(
             workers=1,
-            return_asyncio_server=True,
-            log_config={},
             debug=False,
             **server_kwargs,
         )
