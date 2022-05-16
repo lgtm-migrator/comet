@@ -2,8 +2,8 @@ aioredis>=2.0
 async_lru
 redis
 requests
-sanic==20.3.0 ; python_version >= '3.6'
-multidict==4.6.1 # workaround for sanic installation bug
+sanic>=20.6.0 ; python_version >= '3.6'
+multidict>=4.6.1
 caput @ git+https://github.com/radiocosmology/caput.git
 mmh3
 peewee
