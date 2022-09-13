@@ -5,6 +5,7 @@ FROM python:3.7-slim
 LABEL maintainer="CHIME/FRB Collaboration"
 
 #RUN set -xe 
+ADD . /comet
 
 RUN apt-get update && \
     #--------------------------------------------
@@ -16,7 +17,6 @@ RUN apt-get update && \
     apt-get install -y curl && \
     apt-get install -y build-essential && \
     apt-get install -y libmariadb-dev && \
-    git clone --branch vs/comet https://github.com/aelanman/comet.git && \
     pip install -r /comet/requirements.txt && \
     pip install /comet && \
     #-----------------------
